@@ -9,6 +9,12 @@
 #include <chrono>
 #include <optional>
 #include <limits>
+#include <atomic>
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 // Represents a single node in your 100,000+ node terrain grid
 struct Node {
@@ -32,7 +38,7 @@ public:
     int width = 0;
     int height = 0;
     std::vector<Node> nodes;
-    std::vector<NodeState> node_states;
+    std::vector<std::atomic<NodeState>> node_states;
 
     TrailQuestSystem(const std::string& grid_filename) {
         loadGridFromFile(grid_filename);
@@ -127,7 +133,7 @@ public:
                 }
             }
 
-            std::this_thread::sleep_for(std::chrono::microseconds(30));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 };
@@ -145,6 +151,10 @@ int main() {
 
     int start_node = 20 * system.width + 20;
     int end_node = (system.height - 20) * system.width + (system.width - 20);
+
+#ifdef _WIN32
+    timeBeginPeriod(1); // added this so the animation paces out better on Windows
+#endif
 
     std::thread search_thread(&TrailQuestSystem::runSearchSimulation, &system, start_node, end_node);
 
@@ -202,6 +212,10 @@ int main() {
     if (search_thread.joinable()) {
         search_thread.join();
     }
+
+#ifdef _WIN32
+    timeEndPeriod(1);
+#endif
 
     return 0;
 }
