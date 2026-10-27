@@ -10,9 +10,12 @@
 #include <optional>
 #include <limits>
 #include <atomic>
+#include <memory>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -38,7 +41,8 @@ public:
     int width = 0;
     int height = 0;
     std::vector<Node> nodes;
-    std::vector<std::atomic<NodeState>> node_states;
+    std::unique_ptr<std::atomic<NodeState>[]> node_states;
+    std::string console_log;   // print summary only after app closes
 
     TrailQuestSystem(const std::string& grid_filename) {
         loadGridFromFile(grid_filename);
@@ -54,7 +58,7 @@ public:
 
         file >> width >> height;
         nodes.resize(width * height);
-        node_states.assign(width * height, UNVISITED);
+        node_states.reset(new std::atomic<NodeState>[width * height]); // each element starts at zero for unvisited
 
         int id;
         double x, y, weight;
@@ -79,7 +83,7 @@ public:
             }
         }
 
-        std::cout << "Successfully loaded and wired " << nodes.size() << " nodes from " << filename << ".\n";
+        console_log += "Successfully loaded and wired " + std::to_string(nodes.size()) + " nodes from " + filename + ".\n";
     }
 
     // Cost-based search simulation (Dijkstra using terrain weights)
@@ -97,6 +101,13 @@ public:
         pq.push({0.0, start_idx});
         node_states[start_idx] = FRONTIER;
 
+        // MATTHEW: just a heads up, we can tune BATCH_SIZE or BATCH_PAUSE_MS to
+        // speed the sweep up or slow it down. A bigger batch plus a shorter pause
+        // gives a faster overall sweep.
+        const int BATCH_SIZE = 20;
+        const int BATCH_PAUSE_MS = 35;
+        int steps_in_batch = 0;
+
         while (!pq.empty()) {
             auto [current_cost, current] = pq.top();
             pq.pop();
@@ -110,7 +121,7 @@ public:
                     node_states[curr] = PATH;
                     curr = came_from[curr];
                 }
-                std::cout << "Path found and highlighted on UI display!\n";
+                console_log += "Path found and highlighted on UI display!\n";
                 break;
             }
 
@@ -133,7 +144,11 @@ public:
                 }
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            steps_in_batch++;
+            if (steps_in_batch >= BATCH_SIZE) {
+                steps_in_batch = 0;
+                std::this_thread::sleep_for(std::chrono::milliseconds(BATCH_PAUSE_MS));
+            }
         }
     }
 };
@@ -182,6 +197,10 @@ int main() {
                         rect.setFillColor(sf::Color::Yellow);         // Yellow: Search Frontier
                         break;
                     case VISITED:
+                        // MATTHEW: just a heads up, I like the blue and the navy, but I think
+                        // they're a little too similar. The sweep is a bit hard to see on water.
+                        // Either add a legend somewhere that tells us what each color means, or
+                        // just change the sweep color from navy to something else.
                         rect.setFillColor(sf::Color(100, 150, 255));    // Blue: Explored nodes
                         break;
                     case PATH:
@@ -216,6 +235,9 @@ int main() {
 #ifdef _WIN32
     timeEndPeriod(1);
 #endif
+
+    // The console should not print anything until the application has closed.
+    std::cout << system.console_log;
 
     return 0;
 }
