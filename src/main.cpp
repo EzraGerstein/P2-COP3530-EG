@@ -29,3 +29,10 @@ int main() {
     cout << "Path Length (Vertices)       | " << result.path.size() << " nodes\n";
     cout << "-------------------------------------------------\n";
 }
+#include <iostream>
+
+using namespace std;
+
+int main() {
+    cout << "hello world!";
+}
