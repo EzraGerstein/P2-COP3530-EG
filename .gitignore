@@ -1,0 +1,13 @@
+# Build folders
+build/
+build-static/
+build-verify/
+build-final/
+cmake-build-debug/
+
+# Build artifacts
+main.exe
+main_run.log
+
+# IDE
+.idea/
