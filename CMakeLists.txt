@@ -17,6 +17,9 @@ find_package(SFML 3.0 COMPONENTS Graphics Window System REQUIRED)
 
 include_directories(src)
 
+# Ensure grid.txt is copied to the binary directory so the executable finds it when run from CLion
+configure_file("${CMAKE_SOURCE_DIR}/grid.txt" "${CMAKE_CURRENT_BINARY_DIR}/grid.txt" COPYONLY)
+
 add_executable(Project2 main.cpp)
 
 # Link SFML 3 libraries. The namespaced targets already carry the include dirs.
