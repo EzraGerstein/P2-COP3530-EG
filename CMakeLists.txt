@@ -17,13 +17,15 @@ find_package(SFML 3.0 COMPONENTS Graphics Window System REQUIRED)
 
 include_directories(src)
 
+add_executable(Project2 main.cpp)
+
 # Link SFML 3 libraries. The namespaced targets already carry the include dirs.
 target_link_libraries(Project2 PRIVATE SFML::Graphics SFML::Window SFML::System)
 
-# comment everything below out if you are using CLion
-include(CTest)
-include(Catch)
-catch_discover_tests(Tests) # must be named the same as your test executable
+# Commented out for CLion
+# include(CTest)
+# include(Catch)
+# catch_discover_tests(Tests)
 
 # timeBeginPeriod and timeEndPeriod are in the Windows multimedia library.
 if(WIN32)
