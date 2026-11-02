@@ -11,6 +11,7 @@
 #include <limits>
 #include <atomic>
 #include <memory>
+#include <algorithm>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -18,8 +19,12 @@
 #endif
 #include <windows.h>
 #endif
+// I added this after windows.h because for some reason it gives an error when it's above.
+#include "graph.h"
+#include "min_heap.h"
+#include "dijkstra.h"
 
-// Represents a single node in your 100,000+ node terrain grid
+// changed to gredcell to compatability reasons
 struct Node {
     int node_id;
     double x_coord;
@@ -432,6 +437,23 @@ int main() {
 
     int frame_counter = 0;
 
+    // added my search if something is not working lemme know
+    TerrainGraph terrain_graph;
+    terrain_graph.load_grid("grid.txt");
+
+    std::string search_summary;
+    std::thread dijkstra_thread([&]() {
+        Search_Result result = find_shortest_path(terrain_graph, start_node, end_node);
+
+        if (result.path_exist) {
+            search_summary = "dijkstra: path " + std::to_string(result.path_found.size()) + " nodes, cost " +
+                std::to_string(result.path_total_cost) + ", explored " + std::to_string(result.Nodes_used) +
+                " nodes in " + std::to_string(result.search_time) + " ms\n";
+        } else {
+            search_summary = "dijkstra: no path found\n";
+        }
+    });
+
     while (window.isOpen()) {
         while (const std::optional event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
@@ -587,12 +609,16 @@ int main() {
         search_thread.join();
     }
 
+    if (dijkstra_thread.joinable()) {
+        dijkstra_thread.join();
+    }
+
 #ifdef _WIN32
     timeEndPeriod(1);
 #endif
 
     // The console should not print anything until the application has closed.
-    std::cout << system.console_log;
+    std::cout << system.console_log << search_summary;
 
     return 0;
 }

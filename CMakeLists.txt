@@ -20,7 +20,7 @@ include_directories(src)
 # Ensure grid.txt is copied to the binary directory so the executable finds it when run from CLion
 configure_file("${CMAKE_SOURCE_DIR}/grid.txt" "${CMAKE_CURRENT_BINARY_DIR}/grid.txt" COPYONLY)
 
-add_executable(Project2 main.cpp)
+add_executable(Project2 main.cpp graph.cpp min_heap.cpp dijkstra.cpp)
 
 # Link SFML 3 libraries. The namespaced targets already carry the include dirs.
 target_link_libraries(Project2 PRIVATE SFML::Graphics SFML::Window SFML::System)
