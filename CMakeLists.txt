@@ -15,7 +15,7 @@ endif()
 # SFML 3 uses "Graphics", "Window", "System" (case-sensitive components)
 find_package(SFML 3.0 COMPONENTS Graphics Window System REQUIRED)
 
-add_executable(untitled5 main.cpp)
+add_executable(untitled5 main.cpp graph.cpp min_heap.cpp dijkstra.cpp)
 
 # Link SFML 3 libraries. The namespaced targets already carry the include dirs.
 target_link_libraries(untitled5 PRIVATE SFML::Graphics SFML::Window SFML::System)

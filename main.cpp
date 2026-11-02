@@ -18,9 +18,13 @@
 #endif
 #include <windows.h>
 #endif
+// I added this after windows.h because for some reason it gives an error when it's above.
+#include "graph.h"
+#include "min_heap.h"
+#include "dijkstra.h"
 
-// Represents a single node in your 100,000+ node terrain grid
-struct Node {
+// changed to gredcell to compatability reasons
+struct GridCell {
     int node_id;
     double x_coord;
     double y_coord;
@@ -40,7 +44,7 @@ class TrailQuestSystem {
 public:
     int width = 0;
     int height = 0;
-    std::vector<Node> nodes;
+    std::vector<GridCell> nodes;
     std::unique_ptr<std::atomic<NodeState>[]> node_states;
     std::string console_log;   // print summary only after app closes
 
@@ -58,7 +62,10 @@ public:
 
         file >> width >> height;
         nodes.resize(width * height);
-        node_states.reset(new std::atomic<NodeState>[width * height]); // each element starts at zero for unvisited
+        node_states.reset(new std::atomic<NodeState>[width * height]);
+        for (std::size_t i = 0; i < (std::size_t)(width * height); i++) {
+            node_states[i].store(UNVISITED);
+        }
 
         int id;
         double x, y, weight;
@@ -86,7 +93,7 @@ public:
         console_log += "Successfully loaded and wired " + std::to_string(nodes.size()) + " nodes from " + filename + ".\n";
     }
 
-    // Cost-based search simulation (Dijkstra using terrain weights)
+    // the dijkstras cost based search
     void runSearchSimulation(int start_idx, int end_idx) {
         if (nodes.empty()) return;
 
@@ -101,7 +108,7 @@ public:
         pq.push({0.0, start_idx});
         node_states[start_idx] = FRONTIER;
 
-        // MATTHEW: just a heads up, we can tune BATCH_SIZE or BATCH_PAUSE_MS to
+        // MATTHEW: just a heads up, we can chane BATCH_SIZE or BATCH_PAUSE_MS to
         // speed the sweep up or slow it down. A bigger batch plus a shorter pause
         // gives a faster overall sweep.
         const int BATCH_SIZE = 20;
@@ -173,6 +180,23 @@ int main() {
 
     std::thread search_thread(&TrailQuestSystem::runSearchSimulation, &system, start_node, end_node);
 
+    // added my search if something is not working lemme know
+    TerrainGraph terrain_graph;
+    terrain_graph.load_grid("grid.txt");
+
+    std::string search_summary;
+    std::thread dijkstra_thread([&]() {
+        Search_Result result = find_shortest_path(terrain_graph, start_node, end_node);
+
+        if (result.path_exist) {
+            search_summary = "dijkstra: path " + std::to_string(result.path_found.size()) + " nodes, cost " +
+                std::to_string(result.path_total_cost) + ", explored " + std::to_string(result.Nodes_used) +
+                " nodes in " + std::to_string(result.search_time) + " ms\n";
+        } else {
+            search_summary = "dijkstra: no path found\n";
+        }
+    });
+
     while (window.isOpen()) {
         while (const std::optional event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
@@ -232,12 +256,16 @@ int main() {
         search_thread.join();
     }
 
+    if (dijkstra_thread.joinable()) {
+        dijkstra_thread.join();
+    }
+
 #ifdef _WIN32
     timeEndPeriod(1);
 #endif
 
     // The console should not print anything until the application has closed.
-    std::cout << system.console_log;
+    std::cout << system.console_log << search_summary;
 
     return 0;
 }
