@@ -20,7 +20,7 @@ include_directories(src)
 # Ensure grid.txt is copied to the binary directory so the executable finds it when run from CLion
 configure_file("${CMAKE_SOURCE_DIR}/grid.txt" "${CMAKE_CURRENT_BINARY_DIR}/grid.txt" COPYONLY)
 
-add_executable(Project2 main.cpp graph.cpp min_heap.cpp dijkstra.cpp)
+add_executable(Project2 src/main.cpp src/graph.cpp src/min_heap.cpp src/dijkstra.cpp)
 
 # Link SFML 3 libraries. The namespaced targets already carry the include dirs.
 target_link_libraries(Project2 PRIVATE SFML::Graphics SFML::Window SFML::System)
@@ -45,12 +45,9 @@ endif()
 #   libgcc_s_seh-1.dll, libstdc++-6.dll, libwinpthread-1.dll
 # I think that should be fine. If you have any questions, let me know.
 
-# --- Benchmark CLI Executable (A* and Heap) ---
-add_executable(astar_benchmark src/main.cpp src/AStar.cpp)
-target_include_directories(astar_benchmark PRIVATE ${CMAKE_SOURCE_DIR}/src)
-
 # --- Unit Tests Executable (Catch2) ---
 add_executable(run_tests test/test.cpp test/catch/catch_amalgamated.cpp src/AStar.cpp)
 target_include_directories(run_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test/catch)
-
-
+if(CMAKE_COMPILER_IS_GNUCXX)
+    target_compile_options(run_tests PRIVATE -gdwarf-4)
+endif()
