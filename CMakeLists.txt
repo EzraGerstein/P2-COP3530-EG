@@ -17,8 +17,9 @@ find_package(SFML 3.0 COMPONENTS Graphics Window System REQUIRED)
 
 include_directories(src)
 
-# Ensure grid.txt is copied to the binary directory so the executable finds it when run from CLion
+# Ensure grid.txt and assets are copied to the binary directory so the executable finds them
 configure_file("${CMAKE_SOURCE_DIR}/grid.txt" "${CMAKE_CURRENT_BINARY_DIR}/grid.txt" COPYONLY)
+file(COPY "${CMAKE_SOURCE_DIR}/assets" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
 
 add_executable(Project2 src/main.cpp src/graph.cpp src/min_heap.cpp src/dijkstra.cpp)
 

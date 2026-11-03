@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include <queue>
 #include <thread>
 #include <chrono>
@@ -19,6 +20,7 @@
 #endif
 #include <windows.h>
 #endif
+
 // I added this after windows.h because for some reason it gives an error when it's above.
 #include "graph.h"
 #include "min_heap.h"
@@ -45,6 +47,16 @@ enum NodeState {
 enum Algorithm {
     DIJKSTRA,
     ASTAR
+};
+
+// Stores the most recent benchmark run metrics for in-screen side-by-side display
+struct AlgorithmStats {
+    std::atomic<bool> has_run{false};
+    std::atomic<bool> is_running{false};
+    std::atomic<double> search_time_ms{0.0};
+    std::atomic<int> nodes_explored{0};
+    std::atomic<double> total_cost{0.0};
+    std::atomic<int> path_length{0};
 };
 
 // Element stored in custom min-heap
@@ -154,6 +166,9 @@ public:
     std::atomic<double> final_path_distance{0.0};
     std::atomic<Algorithm> current_algo{ASTAR};
 
+    AlgorithmStats dijkstra_stats;
+    AlgorithmStats astar_stats;
+
     TrailQuestSystem(const std::string& grid_filename) {
         loadGridFromFile(grid_filename);
         if (width != 100 || height != 100) {
@@ -169,6 +184,23 @@ public:
         }
         nodes_explored = 0;
         final_path_distance = 0.0;
+    }
+
+    void resetAllStats() {
+        resetStates();
+        dijkstra_stats.has_run = false;
+        dijkstra_stats.is_running = false;
+        dijkstra_stats.search_time_ms = 0.0;
+        dijkstra_stats.nodes_explored = 0;
+        dijkstra_stats.total_cost = 0.0;
+        dijkstra_stats.path_length = 0;
+
+        astar_stats.has_run = false;
+        astar_stats.is_running = false;
+        astar_stats.search_time_ms = 0.0;
+        astar_stats.nodes_explored = 0;
+        astar_stats.total_cost = 0.0;
+        astar_stats.path_length = 0;
     }
 
     // Generate a 1:1 true square 100x100 campus map (10,000 nodes) with realistic terrain
@@ -320,6 +352,11 @@ public:
         nodes_explored = 0;
         final_path_distance = 0.0;
 
+        if (algo == DIJKSTRA) dijkstra_stats.is_running = true;
+        if (algo == ASTAR) astar_stats.is_running = true;
+
+        auto t_start = std::chrono::high_resolution_clock::now();
+
         VisualMinHeap pq(nodes.size());
 
         std::vector<double> g_cost(nodes.size(), std::numeric_limits<double>::infinity());
@@ -345,7 +382,13 @@ public:
             visited[current] = true;
             nodes_explored++;
 
+            if (algo == DIJKSTRA) dijkstra_stats.nodes_explored = nodes_explored.load();
+            if (algo == ASTAR) astar_stats.nodes_explored = nodes_explored.load();
+
             if (current == end_idx) {
+                auto t_end = std::chrono::high_resolution_clock::now();
+                double elapsed = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+
                 std::vector<int> path_nodes;
                 int curr = end_idx;
                 while (curr != -1) {
@@ -353,6 +396,23 @@ public:
                     curr = came_from[curr];
                 }
                 final_path_distance = g_cost[end_idx];
+
+                if (algo == DIJKSTRA) {
+                    dijkstra_stats.search_time_ms = elapsed;
+                    dijkstra_stats.nodes_explored = nodes_explored.load();
+                    dijkstra_stats.total_cost = final_path_distance.load();
+                    dijkstra_stats.path_length = static_cast<int>(path_nodes.size());
+                    dijkstra_stats.has_run = true;
+                    dijkstra_stats.is_running = false;
+                } else {
+                    astar_stats.search_time_ms = elapsed;
+                    astar_stats.nodes_explored = nodes_explored.load();
+                    astar_stats.total_cost = final_path_distance.load();
+                    astar_stats.path_length = static_cast<int>(path_nodes.size());
+                    astar_stats.has_run = true;
+                    astar_stats.is_running = false;
+                }
+
                 std::string algo_str = (algo == ASTAR) ? "A* Search" : "Dijkstra";
                 console_log += algo_str + " finished: Path found! Visited " + std::to_string(nodes_explored.load()) +
                                " nodes. Total cost: " + std::to_string(final_path_distance.load()) + "\n";
@@ -398,6 +458,8 @@ public:
             }
         }
 
+        if (algo == DIJKSTRA) dijkstra_stats.is_running = false;
+        if (algo == ASTAR) astar_stats.is_running = false;
         is_searching = false;
     }
 };
@@ -410,8 +472,28 @@ int main() {
         return -1;
     }
 
-    sf::RenderWindow window(sf::VideoMode({800, 800}), "TrailQuest - [1] Dijkstra  [2] A*  [R] Reset");
+    // 1200 x 800 window: Map takes left 800x800, Analytics dashboard takes right 400x800
+    sf::RenderWindow window(sf::VideoMode({1200, 800}), "Project 2");
     window.setFramerateLimit(60);
+
+    // Font loading with multi-path fallback
+    sf::Font font;
+    bool font_loaded = false;
+    const std::vector<std::string> font_candidates = {
+        "assets/arial.ttf",
+        "../assets/arial.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf"
+    };
+    for (const auto& path : font_candidates) {
+        if (font.openFromFile(path)) {
+            font_loaded = true;
+            break;
+        }
+    }
+    if (!font_loaded) {
+        std::cerr << "Warning: Could not load TTF font. Dashboard text will not render.\n";
+    }
 
     int start_node = 20 * system.width + 20;
     int end_node = (system.height - 20) * system.width + (system.width - 20);
@@ -432,27 +514,15 @@ int main() {
         search_thread = std::thread(&TrailQuestSystem::runSearchSimulation, &system, algo, start_node, end_node);
     };
 
-    // Default start with A* search
-    launchSearch(ASTAR);
-
-    int frame_counter = 0;
-
-    // added my search if something is not working lemme know
-    TerrainGraph terrain_graph;
-    terrain_graph.load_grid("grid.txt");
-
-    std::string search_summary;
-    std::thread dijkstra_thread([&]() {
-        Search_Result result = find_shortest_path(terrain_graph, start_node, end_node);
-
-        if (result.path_exist) {
-            search_summary = "dijkstra: path " + std::to_string(result.path_found.size()) + " nodes, cost " +
-                std::to_string(result.path_total_cost) + ", explored " + std::to_string(result.Nodes_used) +
-                " nodes in " + std::to_string(result.search_time) + " ms\n";
-        } else {
-            search_summary = "dijkstra: no path found\n";
-        }
-    });
+    // Helper lambda to draw text concisely
+    auto drawText = [&](const std::string& str, float x, float y, unsigned int size, sf::Color color, bool bold = false) {
+        if (!font_loaded) return;
+        sf::Text text(font, str, size);
+        text.setPosition({x, y});
+        text.setFillColor(color);
+        if (bold) text.setStyle(sf::Text::Bold);
+        window.draw(text);
+    };
 
     while (window.isOpen()) {
         while (const std::optional event = window.pollEvent()) {
@@ -460,49 +530,49 @@ int main() {
                 window.close();
             }
 
-            // Handle window resizing dynamically while keeping 1:1 pixel coordinates
+            // Handle window resizing dynamically
             if (const auto* resized = event->getIf<sf::Event::Resized>()) {
                 window.setView(sf::View(sf::FloatRect({0.f, 0.f}, sf::Vector2f(resized->size))));
             }
 
-            // Keyboard controls for switching algorithms on the fly
+            // Keyboard controls for triggering algorithms
             if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>()) {
                 if (keyPressed->code == sf::Keyboard::Key::Num1 || keyPressed->code == sf::Keyboard::Key::D) {
                     launchSearch(DIJKSTRA);
                 } else if (keyPressed->code == sf::Keyboard::Key::Num2 || keyPressed->code == sf::Keyboard::Key::A) {
                     launchSearch(ASTAR);
                 } else if (keyPressed->code == sf::Keyboard::Key::R || keyPressed->code == sf::Keyboard::Key::Space) {
-                    launchSearch(system.current_algo.load());
+                    system.stop_requested = true;
+                    if (search_thread.joinable()) {
+                        search_thread.join();
+                    }
+                    system.resetAllStats();
                 }
             }
         }
 
-        // Periodically update window title with live statistics
-        frame_counter++;
-        if (frame_counter % 10 == 0) {
-            std::string algo_name = (system.current_algo == ASTAR) ? "A* Search" : "Dijkstra";
-            std::string status = system.is_searching ? "Exploring..." : "Complete";
-            std::string title = "TrailQuest | [1] Dijkstra  [2] A*  [R] Reset | Active: " + algo_name +
-                                " (" + status + ") | Visited: " + std::to_string(system.nodes_explored.load());
-            if (!system.is_searching && system.final_path_distance > 0.0) {
-                title += " | Distance: " + std::to_string(static_cast<int>(system.final_path_distance.load()));
-            }
-            window.setTitle(title);
-        }
-
-        window.clear(sf::Color(15, 15, 20));
+        window.clear(sf::Color(16, 18, 24));
 
         float winWidth = static_cast<float>(window.getSize().x);
         float winHeight = static_cast<float>(window.getSize().y);
 
+        // Layout: Dashboard occupies 400px on the right; Map occupies the remaining area on the left
+        float panelWidth = 400.0f;
+        float panelX = std::max(400.0f, winWidth - panelWidth);
+        float mapAreaWidth = panelX;
+        float mapAreaHeight = winHeight;
+
         // Strict 1:1 aspect ratio: cells are always true squares
-        float cellSize = std::min(winWidth / system.width, winHeight / system.height);
+        float cellSize = std::min(mapAreaWidth / system.width, mapAreaHeight / system.height);
         if (cellSize < 1.0f) cellSize = 1.0f;
 
-        // Center the map in the window
-        float offsetX = (winWidth - cellSize * system.width) / 2.0f;
-        float offsetY = (winHeight - cellSize * system.height) / 2.0f;
+        // Center the square map in the left area
+        float offsetX = (mapAreaWidth - cellSize * system.width) / 2.0f;
+        float offsetY = (mapAreaHeight - cellSize * system.height) / 2.0f;
 
+        // ==========================================
+        // 1. RENDER LEFT SIDE: 1:1 TERRAIN MAP
+        // ==========================================
         sf::RectangleShape rect(sf::Vector2f(cellSize, cellSize));
 
         for (int y = 0; y < system.height; ++y) {
@@ -516,10 +586,6 @@ int main() {
                         rect.setFillColor(sf::Color::Yellow);         // Yellow: Search Frontier
                         break;
                     case VISITED:
-                        // MATTHEW: just a heads up, I like the blue and the navy, but I think
-                        // they're a little too similar. The sweep is a bit hard to see on water.
-                        // Either add a legend somewhere that tells us what each color means, or
-                        // just change the sweep color from navy to something else.
                         rect.setFillColor(sf::Color(100, 150, 255));    // Blue: Explored nodes
                         break;
                     case PATH:
@@ -601,6 +667,255 @@ int main() {
         flag.setOutlineThickness(1.0f);
         window.draw(flag);
 
+        // ==========================================
+        // 2. RENDER RIGHT SIDE: ANALYTICS DASHBOARD (WHITE BACKGROUND)
+        // ==========================================
+
+        // Panel background card (Pure White)
+        sf::RectangleShape panelBg({winWidth - panelX, winHeight});
+        panelBg.setPosition({panelX, 0.f});
+        panelBg.setFillColor(sf::Color(255, 255, 255));
+        window.draw(panelBg);
+
+        // Vertical divider separating map and dashboard
+        sf::RectangleShape divider({2.0f, winHeight});
+        divider.setPosition({panelX, 0.f});
+        divider.setFillColor(sf::Color(218, 224, 233));
+        window.draw(divider);
+
+        float cardX = panelX + 20.0f;
+        float cardW = 360.0f;
+
+        // Title Header
+        drawText("Project 2", cardX, 22.f, 22, sf::Color(25, 30, 42), true);
+        drawText("Dijkstra vs A* Search Comparison", cardX, 50.f, 13, sf::Color(100, 110, 125));
+
+        // --- Controls Card ---
+        sf::RectangleShape controlsBox({cardW, 76.f});
+        controlsBox.setPosition({cardX, 74.f});
+        controlsBox.setFillColor(sf::Color(246, 248, 251));
+        controlsBox.setOutlineColor(sf::Color(218, 224, 233));
+        controlsBox.setOutlineThickness(1.f);
+        window.draw(controlsBox);
+
+        drawText("[1] Run Dijkstra's Algorithm", cardX + 15.f, 82.f, 13, sf::Color(15, 95, 175), true);
+        drawText("[2] Run A* Search Algorithm", cardX + 15.f, 104.f, 13, sf::Color(20, 135, 55), true);
+        drawText("[R] Reset Map & Comparison", cardX + 15.f, 126.f, 12, sf::Color(90, 100, 115));
+
+        // --- Side-by-Side Comparison Table Card ---
+        sf::RectangleShape tableCard({cardW, 260.f});
+        tableCard.setPosition({cardX, 162.f});
+        tableCard.setFillColor(sf::Color(246, 248, 251));
+        tableCard.setOutlineColor(sf::Color(218, 224, 233));
+        tableCard.setOutlineThickness(1.f);
+        window.draw(tableCard);
+
+        // Table Header
+        drawText("METRIC", cardX + 12.f, 172.f, 12, sf::Color(100, 110, 125), true);
+        drawText("DIJKSTRA", cardX + 135.f, 172.f, 13, sf::Color(15, 95, 175), true);
+        drawText("A* SEARCH", cardX + 250.f, 172.f, 13, sf::Color(20, 135, 55), true);
+
+        // Header divider
+        sf::RectangleShape tableDivider({cardW - 20.f, 1.0f});
+        tableDivider.setPosition({cardX + 10.f, 196.f});
+        tableDivider.setFillColor(sf::Color(218, 224, 233));
+        window.draw(tableDivider);
+
+        // Table Row Renderer Helper
+        auto drawTableRow = [&](const std::string& label, const std::string& dVal, const std::string& aVal, 
+                                bool dActive, bool aActive, float yPos) {
+            drawText(label, cardX + 12.f, yPos, 12, sf::Color(65, 75, 90));
+            drawText(dVal, cardX + 135.f, yPos, 13, dActive ? sf::Color(20, 25, 35) : sf::Color(150, 160, 175), dActive);
+            drawText(aVal, cardX + 250.f, yPos, 13, aActive ? sf::Color(20, 25, 35) : sf::Color(150, 160, 175), aActive);
+        };
+
+        const auto& d_stats = system.dijkstra_stats;
+        const auto& a_stats = system.astar_stats;
+
+        // Row 1: Status
+        std::string dStatus = d_stats.is_running ? "Exploring..." : (d_stats.has_run ? "Done" : "---");
+        std::string aStatus = a_stats.is_running ? "Exploring..." : (a_stats.has_run ? "Done" : "---");
+        drawTableRow("Status", dStatus, aStatus, d_stats.has_run || d_stats.is_running, a_stats.has_run || a_stats.is_running, 206.f);
+
+        // Row 2: Runtime
+        std::string dTime = d_stats.has_run ? (std::to_string(static_cast<int>(d_stats.search_time_ms.load())) + " ms") : "---";
+        std::string aTime = a_stats.has_run ? (std::to_string(static_cast<int>(a_stats.search_time_ms.load())) + " ms") : "---";
+        drawTableRow("Runtime", dTime, aTime, d_stats.has_run, a_stats.has_run, 238.f);
+
+        // Row 3: Nodes Explored
+        std::string dNodes = d_stats.has_run ? std::to_string(d_stats.nodes_explored.load()) : "---";
+        std::string aNodes = a_stats.has_run ? std::to_string(a_stats.nodes_explored.load()) : "---";
+        drawTableRow("Nodes Visited", dNodes, aNodes, d_stats.has_run, a_stats.has_run, 270.f);
+
+        // Row 4: Path Cost
+        std::string dCost = d_stats.has_run ? (std::to_string(static_cast<int>(d_stats.total_cost.load())) + " m") : "---";
+        std::string aCost = a_stats.has_run ? (std::to_string(static_cast<int>(a_stats.total_cost.load())) + " m") : "---";
+        drawTableRow("Path Cost", dCost, aCost, d_stats.has_run, a_stats.has_run, 302.f);
+
+        // Row 5: Path Length
+        std::string dLen = d_stats.has_run ? (std::to_string(d_stats.path_length.load()) + " nodes") : "---";
+        std::string aLen = a_stats.has_run ? (std::to_string(a_stats.path_length.load()) + " nodes") : "---";
+        drawTableRow("Path Steps", dLen, aLen, d_stats.has_run, a_stats.has_run, 334.f);
+
+        // Active State Indicator
+        std::string activeInfo = system.is_searching ? 
+            ("Active: " + std::string(system.current_algo == ASTAR ? "A* Search" : "Dijkstra") + " running...") :
+            (d_stats.has_run || a_stats.has_run ? "Ready for next comparison" : "Press [1] or [2] to begin search");
+        sf::Color activeColor = system.is_searching ? sf::Color(200, 110, 10) : sf::Color(80, 90, 105);
+        drawText(activeInfo, cardX + 12.f, 395.f, 12, activeColor, true);
+
+        // --- Dynamic Comparison Verdict Card ---
+        float verdictH = (d_stats.has_run && a_stats.has_run) ? 122.f : 115.f;
+        sf::RectangleShape verdictCard({cardW, verdictH});
+        verdictCard.setPosition({cardX, 432.f});
+
+        if (d_stats.has_run && a_stats.has_run) {
+            int d_n = d_stats.nodes_explored.load();
+            int a_n = a_stats.nodes_explored.load();
+            double d_time = d_stats.search_time_ms.load();
+            double a_time = a_stats.search_time_ms.load();
+            double d_cost = d_stats.total_cost.load();
+            double a_cost = a_stats.total_cost.load();
+            int d_len = d_stats.path_length.load();
+            int a_len = a_stats.path_length.load();
+
+            bool cost_match = (d_len > 0 && a_len > 0 && std::abs(d_cost - a_cost) < 0.05);
+
+            if (cost_match && a_n <= d_n) {
+                verdictCard.setFillColor(sf::Color(238, 248, 240));
+                verdictCard.setOutlineColor(sf::Color(55, 165, 85));
+            } else {
+                verdictCard.setFillColor(sf::Color(255, 250, 235));
+                verdictCard.setOutlineColor(sf::Color(220, 160, 50));
+            }
+            verdictCard.setOutlineThickness(1.5f);
+            window.draw(verdictCard);
+
+            drawText("DYNAMIC VERDICT & BENCHMARK", cardX + 12.f, 439.f, 13, sf::Color(25, 125, 55), true);
+
+            // 1. Exploration Efficiency (pruning)
+            if (a_n < d_n) {
+                int saved = d_n - a_n;
+                double pct = (d_n > 0) ? (100.0 * saved / d_n) : 0.0;
+                std::stringstream ss;
+                ss << std::fixed << std::setprecision(1) << pct;
+                drawText("* A* pruned " + std::to_string(saved) + " nodes (" + ss.str() + "% reduction)", 
+                         cardX + 12.f, 460.f, 11, sf::Color(20, 135, 55), true);
+            } else if (d_n < a_n) {
+                int diff = a_n - d_n;
+                drawText("* Dijkstra explored " + std::to_string(diff) + " fewer nodes", 
+                         cardX + 12.f, 460.f, 11, sf::Color(15, 95, 175), true);
+            } else {
+                drawText("* Both algorithms explored identical " + std::to_string(a_n) + " nodes", 
+                         cardX + 12.f, 460.f, 11, sf::Color(40, 50, 65));
+            }
+
+            // 2. Runtime Benchmark Comparison
+            if (a_time > 0 && d_time > 0) {
+                if (a_time < d_time) {
+                    double speedup = d_time / a_time;
+                    std::stringstream ss;
+                    ss << std::fixed << std::setprecision(1) << speedup;
+                    drawText("* A* ran " + ss.str() + "x faster (" + std::to_string(static_cast<int>(d_time - a_time)) + " ms saved)", 
+                             cardX + 12.f, 480.f, 11, sf::Color(30, 40, 50));
+                } else if (d_time < a_time) {
+                    double speedup = a_time / d_time;
+                    std::stringstream ss;
+                    ss << std::fixed << std::setprecision(1) << speedup;
+                    drawText("* Dijkstra ran " + ss.str() + "x faster (" + std::to_string(static_cast<int>(a_time - d_time)) + " ms saved)", 
+                             cardX + 12.f, 480.f, 11, sf::Color(30, 40, 50));
+                } else {
+                    drawText("* Equal compute runtime (" + std::to_string(static_cast<int>(a_time)) + " ms)", 
+                             cardX + 12.f, 480.f, 11, sf::Color(30, 40, 50));
+                }
+            } else {
+                drawText("* Measured in sub-millisecond execution", cardX + 12.f, 480.f, 11, sf::Color(30, 40, 50));
+            }
+
+            // 3. Path Cost & Optimality Verification
+            if (d_len > 0 && a_len > 0) {
+                if (cost_match) {
+                    drawText("* Both found identical lowest cost: " + std::to_string(static_cast<int>(a_cost)) + " m", 
+                             cardX + 12.f, 500.f, 11, sf::Color(45, 75, 55));
+                } else {
+                    std::stringstream ss;
+                    ss << std::fixed << std::setprecision(1) << std::abs(d_cost - a_cost);
+                    drawText("* Cost difference: " + ss.str() + " m (Dijkstra: " + std::to_string(static_cast<int>(d_cost)) + " m / A*: " + std::to_string(static_cast<int>(a_cost)) + " m)", 
+                             cardX + 12.f, 500.f, 11, sf::Color(180, 70, 20));
+                }
+            } else {
+                drawText("* One or both algorithms found no valid path", cardX + 12.f, 500.f, 11, sf::Color(180, 50, 50));
+            }
+
+            // 4. Algorithmic Insight
+            if (a_n < d_n) {
+                drawText("* Distance heuristic guided A* straight to the goal", cardX + 12.f, 520.f, 11, sf::Color(80, 95, 110));
+            } else {
+                drawText("* Both algorithms explored similar search areas", cardX + 12.f, 520.f, 11, sf::Color(80, 95, 110));
+            }
+        } else if (d_stats.has_run && !a_stats.has_run) {
+            verdictCard.setFillColor(sf::Color(246, 248, 251));
+            verdictCard.setOutlineColor(sf::Color(218, 224, 233));
+            verdictCard.setOutlineThickness(1.f);
+            window.draw(verdictCard);
+
+            drawText("COMPARISON STATUS", cardX + 12.f, 442.f, 13, sf::Color(15, 95, 175), true);
+            drawText("Dijkstra explored " + std::to_string(d_stats.nodes_explored.load()) + " nodes (" + 
+                     std::to_string(static_cast<int>(d_stats.search_time_ms.load())) + " ms).", 
+                     cardX + 12.f, 468.f, 11, sf::Color(50, 60, 75));
+            drawText("Now press [2] to run A* and unlock comparative analysis!", 
+                     cardX + 12.f, 492.f, 11, sf::Color(20, 135, 55), true);
+        } else if (!d_stats.has_run && a_stats.has_run) {
+            verdictCard.setFillColor(sf::Color(246, 248, 251));
+            verdictCard.setOutlineColor(sf::Color(218, 224, 233));
+            verdictCard.setOutlineThickness(1.f);
+            window.draw(verdictCard);
+
+            drawText("COMPARISON STATUS", cardX + 12.f, 442.f, 13, sf::Color(20, 135, 55), true);
+            drawText("A* explored " + std::to_string(a_stats.nodes_explored.load()) + " nodes (" + 
+                     std::to_string(static_cast<int>(a_stats.search_time_ms.load())) + " ms).", 
+                     cardX + 12.f, 468.f, 11, sf::Color(50, 60, 75));
+            drawText("Now press [1] to run Dijkstra and unlock comparative analysis!", 
+                     cardX + 12.f, 492.f, 11, sf::Color(15, 95, 175), true);
+        } else {
+            verdictCard.setFillColor(sf::Color(246, 248, 251));
+            verdictCard.setOutlineColor(sf::Color(218, 224, 233));
+            verdictCard.setOutlineThickness(1.f);
+            window.draw(verdictCard);
+
+            drawText("COMPARISON VERDICT", cardX + 12.f, 442.f, 13, sf::Color(100, 110, 125), true);
+            drawText("Run BOTH Dijkstra [1] and A* [2] to", cardX + 12.f, 470.f, 12, sf::Color(115, 125, 140));
+            drawText("unlock live speedup and pruning metrics.", cardX + 12.f, 492.f, 12, sf::Color(115, 125, 140));
+        }
+
+        // --- Map Terrain Legend Card ---
+        sf::RectangleShape legendCard({cardW, 200.f});
+        legendCard.setPosition({cardX, 565.f});
+        legendCard.setFillColor(sf::Color(246, 248, 251));
+        legendCard.setOutlineColor(sf::Color(218, 224, 233));
+        legendCard.setOutlineThickness(1.f);
+        window.draw(legendCard);
+
+        drawText("MAP TERRAIN LEGEND", cardX + 12.f, 575.f, 13, sf::Color(65, 75, 90), true);
+
+        auto drawLegendItem = [&](sf::Color color, const std::string& name, const std::string& cost, float yPos) {
+            sf::RectangleShape swatch({14.f, 14.f});
+            swatch.setPosition({cardX + 15.f, yPos + 2.f});
+            swatch.setFillColor(color);
+            swatch.setOutlineColor(sf::Color(180, 185, 195));
+            swatch.setOutlineThickness(1.f);
+            window.draw(swatch);
+
+            drawText(name, cardX + 38.f, yPos, 12, sf::Color(30, 40, 55));
+            drawText(cost, cardX + 270.f, yPos, 12, sf::Color(110, 120, 135));
+        };
+
+        drawLegendItem(sf::Color(0, 200, 0), "Trails (Footpaths)", "Cost: 1.0", 605.f);
+        drawLegendItem(sf::Color(120, 180, 80), "Grass (Lawn)", "Cost: 2.5", 635.f);
+        drawLegendItem(sf::Color(100, 100, 100), "Roads (Paved)", "Cost: 8.0", 665.f);
+        drawLegendItem(sf::Color(180, 50, 50), "Buildings", "Cost: 60.0", 695.f);
+        drawLegendItem(sf::Color(30, 30, 100), "Lake Alice (Water)", "Cost: 99.0", 725.f);
+
         window.display();
     }
 
@@ -609,16 +924,12 @@ int main() {
         search_thread.join();
     }
 
-    if (dijkstra_thread.joinable()) {
-        dijkstra_thread.join();
-    }
-
 #ifdef _WIN32
     timeEndPeriod(1);
 #endif
 
     // The console should not print anything until the application has closed.
-    std::cout << system.console_log << search_summary;
+    std::cout << system.console_log;
 
     return 0;
 }
