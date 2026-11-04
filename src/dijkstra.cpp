@@ -100,7 +100,7 @@ Search_Result find_shortest_path(const TerrainGraph &graph, int start_ID, int go
             break;
         }
 
-        const Node* current_node = graph.node(current.node_ID);
+        const GridCell* current_node = graph.node(current.node_ID);
 
 
 
@@ -113,7 +113,7 @@ Search_Result find_shortest_path(const TerrainGraph &graph, int start_ID, int go
                 continue;
             }
 
-            const Node* neighbor = graph.node(neighbor_ID);
+            const GridCell* neighbor = graph.node(neighbor_ID);
 
 
             if (neighbor -> terraincost >= TerrainGraph::BARRIER) {

@@ -1,132 +1,102 @@
-#include <AStar.h>
+#include "AStar.h"
 
-using namespace std;
-
-struct Node {
-    int id;
-    double x;
-    double y;
-    double terrainWeight;
-    vector<pair<int, double>> neighbors;
-};
-
-struct BenchmarkMetrics {
-    double executionTimeMS;
-    int nodesVisited;
-    double totalPathDistance;
-    int memoryUsedKB;
-    vector<int> path;
-};
-
-struct HeapElement {
-    int nodeID;
-    double fCost;
-};
-
-class MinHeap {
-    vector<HeapElement> heap;
-    vector<int> NodeToHeapIdx;
-
-    void siftUp(int idx) {
-        while (idx > 0) {
-            int parent = (idx - 1) / 2;
-            if (heap[idx].fCost < heap[parent].fCost) {
-                swapElements(idx, parent);
-                idx = parent;
-            } else {
-                break;
-            }
-        }
-    }
-
-    void siftDown(int idx) {
-        int size = heap.size();
-        while (2 * idx + 1 < size) {
-            int left = 2 * idx + 1;
-            int right = 2 * idx + 2;
-            int smallest = left;
-
-            if (right < size && heap[right].fCost < heap[left].fCost) {
-                smallest = right;
-            }
-
-            if (heap[smallest].fCost < heap[idx].fCost) {
-                swapElements(idx, smallest);
-                idx = smallest;
-            } else {
-                break;
-            }
-        }
-    }
-
-    void swapElements(int i, int j) {
-        std::swap(heap[i], heap[j]);
-        NodeToHeapIdx[heap[i].nodeID] = i;
-        NodeToHeapIdx[heap[j].nodeID] = j;
-    }
-
-public:
-    MinHeap(size_t total_nodes) {
-        NodeToHeapIdx.assign(total_nodes, -1);
-    }
-
-    bool empty() const {
-        return heap.empty();
-    }
-
-    void pushOrDecreaseKey(int nodeID, double fCost) {
-        if (NodeToHeapIdx[nodeID] == -1) {
-            heap.push_back({nodeID, fCost});
-            int idx = heap.size() - 1;
-            NodeToHeapIdx[nodeID] = idx;
-            siftUp(idx);
+void MinHeap::siftUp(int idx) {
+    while (idx > 0) {
+        int parent = (idx - 1) / 2;
+        if (heap[idx].fCost < heap[parent].fCost) {
+            swapElements(idx, parent);
+            idx = parent;
         } else {
-            int idx = NodeToHeapIdx[nodeID];
-            if (fCost < heap[idx].fCost) {
-                heap[idx].fCost = fCost;
-                siftUp(idx);
-            }
+            break;
         }
     }
+}
 
-    HeapElement extractMin() {
-        HeapElement minElem = heap[0];
-        swapElements(0, heap.size() - 1);
-        NodeToHeapIdx[minElem.nodeID] = -1;
-        heap.pop_back();
+void MinHeap::siftDown(int idx) {
+    int size = static_cast<int>(heap.size());
+    while (2 * idx + 1 < size) {
+        int left = 2 * idx + 1;
+        int right = 2 * idx + 2;
+        int smallest = left;
 
-        if (!heap.empty()) {
-            siftDown(0);
+        if (right < size && heap[right].fCost < heap[left].fCost) {
+            smallest = right;
         }
-        return minElem;
+
+        if (heap[smallest].fCost < heap[idx].fCost) {
+            swapElements(idx, smallest);
+            idx = smallest;
+        } else {
+            break;
+        }
     }
+}
 
-    int getMemoryFootprintBytes() const {
-        return (heap.capacity() * sizeof(HeapElement)) + 
-               (NodeToHeapIdx.capacity() * sizeof(int));
+void MinHeap::swapElements(int i, int j) {
+    std::swap(heap[i], heap[j]);
+    NodeToHeapIdx[heap[i].nodeID] = i;
+    NodeToHeapIdx[heap[j].nodeID] = j;
+}
+
+MinHeap::MinHeap(size_t total_nodes) {
+    NodeToHeapIdx.assign(total_nodes, -1);
+}
+
+bool MinHeap::empty() const {
+    return heap.empty();
+}
+
+void MinHeap::pushOrDecreaseKey(int nodeID, double fCost) {
+    if (NodeToHeapIdx[nodeID] == -1) {
+        heap.push_back({nodeID, fCost});
+        int idx = static_cast<int>(heap.size()) - 1;
+        NodeToHeapIdx[nodeID] = idx;
+        siftUp(idx);
+    } else {
+        int idx = NodeToHeapIdx[nodeID];
+        if (fCost < heap[idx].fCost) {
+            heap[idx].fCost = fCost;
+            siftUp(idx);
+        }
     }
-};
+}
 
+HeapElement MinHeap::extractMin() {
+    HeapElement minElem = heap[0];
+    swapElements(0, static_cast<int>(heap.size()) - 1);
+    NodeToHeapIdx[minElem.nodeID] = -1;
+    heap.pop_back();
 
-inline double calculateEuclideanHeuristic(Node& a, Node& b, double min_terrain_weight = 1.0) {
+    if (!heap.empty()) {
+        siftDown(0);
+    }
+    return minElem;
+}
+
+int MinHeap::getMemoryFootprintBytes() const {
+    return static_cast<int>((heap.capacity() * sizeof(HeapElement)) + 
+                            (NodeToHeapIdx.capacity() * sizeof(int)));
+}
+
+double calculateEuclideanHeuristic(const Node& a, const Node& b, double min_terrain_weight) {
     double dx = a.x - b.x;
     double dy = a.y - b.y;
     return std::sqrt(dx * dx + dy * dy) * min_terrain_weight;
 }
 
-BenchmarkMetrics runAStar(vector<Node>& graph, int start_id, int goal_id) {
+BenchmarkMetrics runAStar(const std::vector<Node>& graph, int start_id, int goal_id) {
     BenchmarkMetrics metrics = {0.0, 0, 0.0, 0, {}};
     const size_t n = graph.size();
 
-    if (start_id < 0 || start_id >= n ||
-        goal_id < 0 || goal_id >= n) {
-        cerr << "Invalid start or destination node ID.\n";
+    if (start_id < 0 || static_cast<size_t>(start_id) >= n ||
+        goal_id < 0 || static_cast<size_t>(goal_id) >= n) {
+        std::cerr << "Invalid start or destination node ID.\n";
         return metrics;
     }
 
-    auto start_time = chrono::high_resolution_clock::now();
+    auto start_time = std::chrono::high_resolution_clock::now();
 
-    double INF = numeric_limits<double>::infinity();
+    double INF = std::numeric_limits<double>::infinity();
     std::vector<double> g_score(n, INF);
     std::vector<double> f_score(n, INF);
     std::vector<int> parent(n, -1);
@@ -171,11 +141,11 @@ BenchmarkMetrics runAStar(vector<Node>& graph, int start_id, int goal_id) {
         }
     }
 
-    auto end_time = chrono::high_resolution_clock::now();
-    metrics.executionTimeMS = chrono::duration<double, milli>(end_time - start_time).count();
+    auto end_time = std::chrono::high_resolution_clock::now();
+    metrics.executionTimeMS = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
     size_t vectors_memory = (sizeof(double) * 2 + sizeof(int) + sizeof(bool)) * n;
-    metrics.memoryUsedKB = (vectors_memory + open_set.getMemoryFootprintBytes()) / 1024;
+    metrics.memoryUsedKB = static_cast<int>((vectors_memory + open_set.getMemoryFootprintBytes()) / 1024);
 
     if (!found) {
         std::cout << "No route found between selected nodes.\n";
@@ -194,7 +164,7 @@ BenchmarkMetrics runAStar(vector<Node>& graph, int start_id, int goal_id) {
     return metrics;
 }
 
-inline std::vector<Node> generateTerrainGrid(int rows, int cols) {
+std::vector<Node> generateTerrainGrid(int rows, int cols) {
     const int total = rows * cols;
     std::vector<Node> graph(total);
 

@@ -114,6 +114,6 @@ int TerrainGraph::nodeCount() const {
     return static_cast<int>(nodes.size());
 }
 
-const Node* TerrainGraph::node(int node_ID) const {
+const GridCell* TerrainGraph::node(int node_ID) const {
     return &nodes[node_ID];
 }

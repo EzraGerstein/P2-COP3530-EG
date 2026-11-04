@@ -10,7 +10,7 @@
 using namespace std;
 
     //node represents a single cell in the terrain grid
-    struct Node {
+    struct GridCell {
 
         int node_ID;
 
@@ -19,7 +19,7 @@ using namespace std;
         vector<int> available_neighbors;
 
 
-        Node() {
+        GridCell() {
 
             this -> node_ID = -1;
             this -> x_coord = 0;
@@ -54,7 +54,7 @@ using namespace std;
     private:
         int width, height;
 
-        vector<Node> nodes;
+        vector<GridCell> nodes;
 
         
 
@@ -76,7 +76,7 @@ using namespace std;
         int nodeCount() const;
 
         //gets the node with this node_ID
-        const Node* node(int node_ID) const;
+        const GridCell* node(int node_ID) const;
 
     };
 

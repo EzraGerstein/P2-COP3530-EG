@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.20)
-project(untitled5)
+cmake_minimum_required(VERSION 3.22)
+project(Project2)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -15,21 +15,40 @@ endif()
 # SFML 3 uses "Graphics", "Window", "System" (case-sensitive components)
 find_package(SFML 3.0 COMPONENTS Graphics Window System REQUIRED)
 
-add_executable(untitled5 main.cpp graph.cpp min_heap.cpp dijkstra.cpp)
+include_directories(src)
+
+# Ensure grid.txt and assets are copied to the binary directory so the executable finds them
+configure_file("${CMAKE_SOURCE_DIR}/grid.txt" "${CMAKE_CURRENT_BINARY_DIR}/grid.txt" COPYONLY)
+file(COPY "${CMAKE_SOURCE_DIR}/assets" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+
+add_executable(Project2 src/main.cpp src/graph.cpp src/min_heap.cpp src/dijkstra.cpp)
 
 # Link SFML 3 libraries. The namespaced targets already carry the include dirs.
-target_link_libraries(untitled5 PRIVATE SFML::Graphics SFML::Window SFML::System)
+target_link_libraries(Project2 PRIVATE SFML::Graphics SFML::Window SFML::System)
+
+# Commented out for CLion
+# include(CTest)
+# include(Catch)
+# catch_discover_tests(Tests)
 
 # timeBeginPeriod and timeEndPeriod are in the Windows multimedia library.
 if(WIN32)
-    target_link_libraries(untitled5 PRIVATE winmm)
+    target_link_libraries(Project2 PRIVATE winmm)
 endif()
 
 # MATTHEW: just a heads up, if you want to make it portable I can help
 # if you need, but it'll make grading easier. There are two ways to do it.
 # Either add this line after the executable, then rebuild so the EXE
 # carries its own runtime:
-#   target_link_options(untitled5 PRIVATE -static-libgcc -static-libstdc++ -static)
+
+# target_link_options(Project2 PRIVATE -static-libgcc -static-libstdc++ -static)
 # or just copy these three DLLs next to the EXE, together with grid.txt:
 #   libgcc_s_seh-1.dll, libstdc++-6.dll, libwinpthread-1.dll
 # I think that should be fine. If you have any questions, let me know.
+
+# --- Unit Tests Executable (Catch2) ---
+add_executable(run_tests test/test.cpp test/catch/catch_amalgamated.cpp src/AStar.cpp)
+target_include_directories(run_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test/catch)
+if(CMAKE_COMPILER_IS_GNUCXX)
+    target_compile_options(run_tests PRIVATE -gdwarf-4)
+endif()
