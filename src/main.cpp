@@ -160,8 +160,8 @@ public:
 
     TrailQuestSystem(const std::string& grid_filename) {
         loadGridFromFile(grid_filename);
-        if (width != 100 || height != 100) {
-            generateDefaultSquareGrid(100, 100);
+        if (width <= 0 || height <= 0) {
+            generateDefaultSquareGrid(320, 320);
         }
     }
 
