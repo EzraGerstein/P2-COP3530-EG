@@ -1064,12 +1064,6 @@ int main() {
             } else {
                 drawText("* No valid path found", cardX + 12.f, 502.f, 11, sf::Color(180, 50, 50));
             }
-
-            if (a_n < d_n) {
-                drawText("* Heuristic directed A* toward the goal", cardX + 12.f, 522.f, 11, sf::Color(80, 95, 110));
-            } else {
-                drawText("* Both algorithms explored similar search areas", cardX + 12.f, 522.f, 11, sf::Color(80, 95, 110));
-            }
         } else if (d_stats.has_run && !a_stats.has_run) {
             verdictCard.setFillColor(sf::Color(246, 248, 251));
             verdictCard.setOutlineColor(sf::Color(218, 224, 233));
