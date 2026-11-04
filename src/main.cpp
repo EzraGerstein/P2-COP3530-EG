@@ -21,12 +21,6 @@
 #include <windows.h>
 #endif
 
-// I added this after windows.h because for some reason it gives an error when it's above.
-#include "graph.h"
-#include "min_heap.h"
-#include "dijkstra.h"
-
-// changed to gredcell to compatability reasons
 struct Node {
     int node_id;
     double x_coord;
@@ -35,21 +29,18 @@ struct Node {
     std::vector<int> neighbors;
 };
 
-// States for visual search display
 enum NodeState {
     UNVISITED,
-    FRONTIER,   // Yellow: Unfinished paths actively being evaluated (Search Frontier)
-    VISITED,    // Blue: Explored nodes
-    PATH        // Red: Final completed shortest path
+    FRONTIER,
+    VISITED,
+    PATH
 };
 
-// Available pathfinding algorithms
 enum Algorithm {
     DIJKSTRA,
     ASTAR
 };
 
-// Stores the most recent benchmark run metrics for in-screen side-by-side display
 struct AlgorithmStats {
     std::atomic<bool> has_run{false};
     std::atomic<bool> is_running{false};
@@ -59,13 +50,12 @@ struct AlgorithmStats {
     std::atomic<int> path_length{0};
 };
 
-// Element stored in custom min-heap
 struct VisualHeapElement {
     int node_id;
     double priority;
 };
 
-// Custom Binary Min-Heap built from scratch (no std::priority_queue)
+// min-heap with pushOrDecreaseKey for the visualizer
 class VisualMinHeap {
     std::vector<VisualHeapElement> heap;
     std::vector<int> node_to_heap_idx;
@@ -145,7 +135,6 @@ public:
     }
 };
 
-// Euclidean distance heuristic for A* Search
 inline double calculateHeuristic(const Node& a, const Node& b) {
     double dx = a.x_coord - b.x_coord;
     double dy = a.y_coord - b.y_coord;
@@ -203,7 +192,7 @@ public:
         astar_stats.path_length = 0;
     }
 
-    // Generate a 1:1 true square 100x100 campus map (10,000 nodes) with realistic terrain
+    // generates a fallback campus grid if grid.txt is not present
     void generateDefaultSquareGrid(int w = 100, int h = 100) {
         width = w;
         height = h;
@@ -219,10 +208,10 @@ public:
                 nodes[id].x_coord = c * 2.5;
                 nodes[id].y_coord = r * 2.5;
 
-                // Base terrain: Grass (Light Green)
+                // base grass weight
                 double weight = 2.5;
 
-                // Lake Alice (Water: 99.0) in the center
+                // lake alice
                 double dx = (c - 50.0) / 20.0;
                 double dy = (r - 50.0) / 14.0;
                 double lake_dist = dx * dx + dy * dy;
@@ -230,14 +219,14 @@ public:
                     weight = 99.0;
                 }
 
-                // Smaller wetland pond to the northeast
+                // small pond
                 double px = (c - 76.0) / 8.0;
                 double py = (r - 28.0) / 6.0;
                 if (px * px + py * py <= 1.0) {
                     weight = 99.0;
                 }
 
-                // Campus Buildings (Dark Red: 60.0)
+                // campus buildings
                 if ((r >= 10 && r <= 20 && c >= 28 && c <= 42) ||
                     (r >= 12 && r <= 24 && c >= 62 && c <= 76) ||
                     (r >= 74 && r <= 86 && c >= 18 && c <= 32) ||
@@ -245,20 +234,17 @@ public:
                     weight = 60.0;
                 }
 
-                // Perimeter Roads (Gray: 8.0)
+                // perimeter roads
                 if ((c == 15 || c == 85) && r >= 5 && r <= 95) weight = 8.0;
                 if ((r == 15 || r == 85) && c >= 5 && c <= 95) weight = 8.0;
 
-                // Nature Trails & Footpaths (Green: 1.0)
-                // Lake Alice shoreline walking loop
+                // trails around lake and connecting paths
                 if (lake_dist > 1.0 && lake_dist <= 1.35) {
                     weight = 1.0;
                 }
-                // Diagonal connector trails from start and goal heading to the lake loop
                 if (std::abs(r - c) <= 1 && (r <= 36 || r >= 64)) {
                     weight = 1.0;
                 }
-                // North-South connecting trail bypasses
                 if (c == 28 && r >= 36 && r <= 64) weight = 1.0;
                 if (c == 72 && r >= 36 && r <= 64) weight = 1.0;
 
@@ -266,18 +252,17 @@ public:
             }
         }
 
-        // Wire up 4-way Adjacency List connections across the 2D grid
+        // connect 4-way neighbors
         for (int y_idx = 0; y_idx < height; ++y_idx) {
             for (int x_idx = 0; x_idx < width; ++x_idx) {
                 int idx = y_idx * width + x_idx;
-                if (x_idx > 0) nodes[idx].neighbors.push_back(idx - 1);           // Left
-                if (x_idx < width - 1) nodes[idx].neighbors.push_back(idx + 1);       // Right
-                if (y_idx > 0) nodes[idx].neighbors.push_back(idx - width);       // Up
-                if (y_idx < height - 1) nodes[idx].neighbors.push_back(idx + width);  // Down
+                if (x_idx > 0) nodes[idx].neighbors.push_back(idx - 1);           // left
+                if (x_idx < width - 1) nodes[idx].neighbors.push_back(idx + 1);       // right
+                if (y_idx > 0) nodes[idx].neighbors.push_back(idx - width);       // up
+                if (y_idx < height - 1) nodes[idx].neighbors.push_back(idx + width);  // down
             }
         }
 
-        // Persist the 100x100 grid to disk
         auto saveTo = [&](const std::string& path) {
             std::ofstream out(path);
             if (out.is_open()) {
@@ -293,7 +278,7 @@ public:
         console_log += "Generated and saved 100x100 square campus grid (10,000 nodes).\n";
     }
 
-    // Load the 100,000+ node terrain grid exported by Python
+    // load grid data from file
     void loadGridFromFile(const std::string& filename) {
         std::ifstream file(filename);
         if (!file.is_open()) {
@@ -306,7 +291,7 @@ public:
         }
 
         file >> width >> height;
-        if (width != 100 || height != 100) {
+        if (width <= 0 || height <= 0 || width != height) {
             file.close();
             generateDefaultSquareGrid(100, 100);
             return;
@@ -328,11 +313,11 @@ public:
         }
         file.close();
 
-        // Wire up 4-way Adjacency List connections across the 2D grid
+        // connect 4-way neighbors
         for (int y_idx = 0; y_idx < height; ++y_idx) {
             for (int x_idx = 0; x_idx < width; ++x_idx) {
                 int idx = y_idx * width + x_idx;
-                if (x_idx > 0) nodes[idx].neighbors.push_back(idx - 1);           // Left
+                if (x_idx > 0) nodes[idx].neighbors.push_back(idx - 1);           // left
                 if (x_idx < width - 1) nodes[idx].neighbors.push_back(idx + 1);       // Right
                 if (y_idx > 0) nodes[idx].neighbors.push_back(idx - width);       // Up
                 if (y_idx < height - 1) nodes[idx].neighbors.push_back(idx + width);  // Down
@@ -342,7 +327,6 @@ public:
         console_log += "Successfully loaded and wired " + std::to_string(nodes.size()) + " nodes from " + filename + ".\n";
     }
 
-    // Pathfinding simulation supporting both Dijkstra and A* with custom MinHeap
     void runSearchSimulation(Algorithm algo, int start_idx, int end_idx) {
         if (nodes.empty()) return;
 
@@ -355,8 +339,41 @@ public:
         if (algo == DIJKSTRA) dijkstra_stats.is_running = true;
         if (algo == ASTAR) astar_stats.is_running = true;
 
-        auto t_start = std::chrono::high_resolution_clock::now();
+        // benchmark raw search time first without GUI delay
+        double pure_search_time_ms = 0.0;
+        {
+            auto bench_start = std::chrono::high_resolution_clock::now();
+            VisualMinHeap bench_pq(nodes.size());
+            std::vector<double> bench_g(nodes.size(), std::numeric_limits<double>::infinity());
+            std::vector<bool> bench_vis(nodes.size(), false);
 
+            bench_g[start_idx] = 0.0;
+            double p0 = (algo == ASTAR) ? calculateHeuristic(nodes[start_idx], nodes[end_idx]) : 0.0;
+            bench_pq.pushOrDecreaseKey(start_idx, p0);
+
+            while (!bench_pq.empty()) {
+                VisualHeapElement elem = bench_pq.extractMin();
+                int u = elem.node_id;
+                if (bench_vis[u]) continue;
+                bench_vis[u] = true;
+                if (u == end_idx) break;
+
+                for (int v : nodes[u].neighbors) {
+                    if (bench_vis[v] || nodes[v].terrain_weight >= 99.0) continue;
+                    double cost = bench_g[u] + nodes[v].terrain_weight;
+                    if (cost < bench_g[v]) {
+                        bench_g[v] = cost;
+                        double p = cost + ((algo == ASTAR) ? calculateHeuristic(nodes[v], nodes[end_idx]) : 0.0);
+                        bench_pq.pushOrDecreaseKey(v, p);
+                    }
+                }
+            }
+            auto bench_end = std::chrono::high_resolution_clock::now();
+            pure_search_time_ms = std::chrono::duration<double, std::milli>(bench_end - bench_start).count();
+            if (pure_search_time_ms < 0.05) pure_search_time_ms = 0.05;
+        }
+
+        // visual pass for the animation
         VisualMinHeap pq(nodes.size());
 
         std::vector<double> g_cost(nodes.size(), std::numeric_limits<double>::infinity());
@@ -368,10 +385,8 @@ public:
         pq.pushOrDecreaseKey(start_idx, start_priority);
         node_states[start_idx] = FRONTIER;
 
-        // Pacing: A* visits far fewer nodes, so use smaller batches and a steady pause
-        // so you can clearly watch its targeted search progression.
-        const int BATCH_SIZE = (algo == ASTAR) ? 3 : 20;
-        const int BATCH_PAUSE_MS = (algo == ASTAR) ? 28 : 15;
+        const int BATCH_SIZE = (algo == ASTAR) ? 8 : 25;
+        const int BATCH_PAUSE_MS = (algo == ASTAR) ? 12 : 10;
         int steps_in_batch = 0;
 
         while (!pq.empty() && !stop_requested) {
@@ -386,9 +401,6 @@ public:
             if (algo == ASTAR) astar_stats.nodes_explored = nodes_explored.load();
 
             if (current == end_idx) {
-                auto t_end = std::chrono::high_resolution_clock::now();
-                double elapsed = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-
                 std::vector<int> path_nodes;
                 int curr = end_idx;
                 while (curr != -1) {
@@ -398,14 +410,14 @@ public:
                 final_path_distance = g_cost[end_idx];
 
                 if (algo == DIJKSTRA) {
-                    dijkstra_stats.search_time_ms = elapsed;
+                    dijkstra_stats.search_time_ms = pure_search_time_ms;
                     dijkstra_stats.nodes_explored = nodes_explored.load();
                     dijkstra_stats.total_cost = final_path_distance.load();
                     dijkstra_stats.path_length = static_cast<int>(path_nodes.size());
                     dijkstra_stats.has_run = true;
                     dijkstra_stats.is_running = false;
                 } else {
-                    astar_stats.search_time_ms = elapsed;
+                    astar_stats.search_time_ms = pure_search_time_ms;
                     astar_stats.nodes_explored = nodes_explored.load();
                     astar_stats.total_cost = final_path_distance.load();
                     astar_stats.path_length = static_cast<int>(path_nodes.size());
@@ -417,12 +429,12 @@ public:
                 console_log += algo_str + " finished: Path found! Visited " + std::to_string(nodes_explored.load()) +
                                " nodes. Total cost: " + std::to_string(final_path_distance.load()) + "\n";
 
-                // Smoothly animate the final shortest path lighting up from start to the flag!
+                // animate the path
                 std::reverse(path_nodes.begin(), path_nodes.end());
                 for (int p_node : path_nodes) {
                     if (stop_requested) break;
                     node_states[p_node] = PATH;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(18));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 }
                 break;
             }
@@ -432,7 +444,7 @@ public:
             for (int neighbor : nodes[current].neighbors) {
                 if (visited[neighbor]) continue;
 
-                // Skip impassable or extremely high cost barriers (e.g., Water cost 99.0)
+                // impassable water
                 if (nodes[neighbor].terrain_weight >= 99.0) continue;
 
                 double weight = nodes[neighbor].terrain_weight;
@@ -472,11 +484,11 @@ int main() {
         return -1;
     }
 
-    // 1200 x 800 window: Map takes left 800x800, Analytics dashboard takes right 400x800
+    // map on the left, stats on the right
     sf::RenderWindow window(sf::VideoMode({1200, 800}), "Project 2");
     window.setFramerateLimit(60);
 
-    // Font loading with multi-path fallback
+    // try to find a font file
     sf::Font font;
     bool font_loaded = false;
     const std::vector<std::string> font_candidates = {
@@ -514,7 +526,6 @@ int main() {
 
     std::thread search_thread;
 
-    // Helper lambda to safely cancel search simulation
     auto cancelSearch = [&]() {
         system.stop_requested = true;
         if (search_thread.joinable()) {
@@ -523,13 +534,11 @@ int main() {
         system.resetStates();
     };
 
-    // Helper lambda to safely cancel and restart search simulation
     auto launchSearch = [&](Algorithm algo) {
         cancelSearch();
         search_thread = std::thread(&TrailQuestSystem::runSearchSimulation, &system, algo, start_node, end_node);
     };
 
-    // Helper lambda to draw text concisely
     auto drawText = [&](const std::string& str, float x, float y, unsigned int size, sf::Color color, bool bold = false) {
         if (!font_loaded) return;
         sf::Text text(font, str, size);
@@ -539,7 +548,6 @@ int main() {
         window.draw(text);
     };
 
-    // Helper lambda to draw styled interactive buttons with centered text
     auto drawButton = [&](const ButtonDef& btn, const std::string& label, sf::Color bgColor, 
                           sf::Color textColor, sf::Color borderColor, float borderThick = 1.0f, bool bold = false) {
         sf::RectangleShape box({btn.w, btn.h});
@@ -565,24 +573,21 @@ int main() {
         float winWidth = static_cast<float>(window.getSize().x);
         float winHeight = static_cast<float>(window.getSize().y);
 
-        // Layout: Dashboard occupies 400px on the right; Map occupies the remaining area on the left
         float panelWidth = 400.0f;
         float panelX = std::max(400.0f, winWidth - panelWidth);
         float mapAreaWidth = panelX;
         float mapAreaHeight = winHeight;
 
-        // Strict 1:1 aspect ratio: cells are always true squares
+        // square cells for 1:1 map
         float cellSize = std::min(mapAreaWidth / system.width, mapAreaHeight / system.height);
         if (cellSize < 1.0f) cellSize = 1.0f;
 
-        // Center the square map in the left area
         float offsetX = (mapAreaWidth - cellSize * system.width) / 2.0f;
         float offsetY = (mapAreaHeight - cellSize * system.height) / 2.0f;
 
         float cardX = panelX + 20.0f;
         float cardW = 360.0f;
 
-        // Dynamic button positions
         ButtonDef btnDijkstra{cardX + 8.f, 68.f, 168.f, 32.f};
         ButtonDef btnAStar{cardX + 184.f, 68.f, 168.f, 32.f};
         ButtonDef btnReset{cardX + 8.f, 106.f, 344.f, 24.f};
@@ -596,16 +601,14 @@ int main() {
                 window.close();
             }
 
-            // Handle window resizing dynamically
             if (const auto* resized = event->getIf<sf::Event::Resized>()) {
                 window.setView(sf::View(sf::FloatRect({0.f, 0.f}, sf::Vector2f(resized->size))));
             }
 
-            // Mouse button interaction
             if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>()) {
                 sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
 
-                // 1. Click inside map area -> set Start or Goal node
+                // click on map to choose start/end node
                 if (clickPos.x >= offsetX && clickPos.x < offsetX + cellSize * system.width &&
                     clickPos.y >= offsetY && clickPos.y < offsetY + cellSize * system.height) {
                     int cellX = static_cast<int>((clickPos.x - offsetX) / cellSize);
@@ -629,7 +632,7 @@ int main() {
                         select_mode = MODE_NONE;
                     }
                 }
-                // 2. Click on dashboard interactive buttons (Left-click only)
+                // click dashboard buttons
                 else if (mousePressed->button == sf::Mouse::Button::Left) {
                     if (btnDijkstra.contains(clickPos)) {
                         select_mode = MODE_NONE;
@@ -648,36 +651,17 @@ int main() {
                     } else if (btnPresetLake.contains(clickPos)) {
                         select_mode = MODE_NONE;
                         cancelSearch();
-                        start_node = 32 * system.width + 18;  // West of Lake Alice
-                        end_node = 68 * system.width + 82;    // East of Lake Alice
+                        start_node = 32 * system.width + 18;  // west of Lake Alice
+                        end_node = 68 * system.width + 82;    // east of Lake Alice
                         system.resetAllStats();
                     }
-                }
-            }
-
-            // Keyboard controls for triggering algorithms
-            if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>()) {
-                if (keyPressed->code == sf::Keyboard::Key::Num1 || keyPressed->code == sf::Keyboard::Key::D) {
-                    select_mode = MODE_NONE;
-                    launchSearch(DIJKSTRA);
-                } else if (keyPressed->code == sf::Keyboard::Key::Num2 || keyPressed->code == sf::Keyboard::Key::A) {
-                    select_mode = MODE_NONE;
-                    launchSearch(ASTAR);
-                } else if (keyPressed->code == sf::Keyboard::Key::R || keyPressed->code == sf::Keyboard::Key::Space) {
-                    select_mode = MODE_NONE;
-                    cancelSearch();
-                    system.resetAllStats();
                 }
             }
         }
 
         window.clear(sf::Color(16, 18, 24));
 
-        // ==========================================
-        // 1. RENDER LEFT SIDE: 1:1 TOPOGRAPHIC MAP (GPU VERTEX ARRAY)
-        // ==========================================
-
-        // Outer map container frame with drop shadow border
+        // map border
         sf::RectangleShape mapBorder({cellSize * system.width + 4.f, cellSize * system.height + 4.f});
         mapBorder.setPosition({offsetX - 2.f, offsetY - 2.f});
         mapBorder.setFillColor(sf::Color(20, 24, 32));
@@ -685,7 +669,7 @@ int main() {
         mapBorder.setOutlineThickness(1.5f);
         window.draw(mapBorder);
 
-        // Pre-allocate GPU VertexArrays for 1-draw-call terrain & overlays
+        // vertex array for fast grid drawing
         sf::VertexArray terrainVA(sf::PrimitiveType::Triangles, system.width * system.height * 6);
         sf::VertexArray searchOverlayVA(sf::PrimitiveType::Triangles);
 
@@ -695,19 +679,18 @@ int main() {
                 float px = offsetX + x * cellSize;
                 float py = offsetY + y * cellSize;
 
-                // Authentic Topographic Cartography Palette
                 sf::Color baseColor;
                 double w = system.nodes[idx].terrain_weight;
                 if (w == 1.0) {
-                    baseColor = sf::Color(38, 135, 65);       // Emerald: Nature Trails & Footpaths
+                    baseColor = sf::Color(38, 135, 65);       // trails
                 } else if (w == 2.5) {
-                    baseColor = sf::Color(122, 158, 102);     // Meadow: Campus Lawns / Grass
+                    baseColor = sf::Color(122, 158, 102);     // grass
                 } else if (w == 8.0) {
-                    baseColor = sf::Color(65, 72, 85);        // Asphalt Slate: Paved Roads
+                    baseColor = sf::Color(65, 72, 85);        // roads
                 } else if (w == 60.0) {
-                    baseColor = sf::Color(148, 62, 50);       // Terracotta Brick: Campus Buildings
+                    baseColor = sf::Color(148, 62, 50);       // buildings
                 } else {
-                    // Water (Lake Alice): check if adjacent to land for natural shoreline depth
+                    // shoreline effect for water
                     bool isShore = false;
                     for (int n : system.nodes[idx].neighbors) {
                         if (system.nodes[n].terrain_weight < 90.0) { isShore = true; break; }
@@ -715,7 +698,7 @@ int main() {
                     baseColor = isShore ? sf::Color(38, 92, 135) : sf::Color(22, 55, 86);
                 }
 
-                // Append quad to terrainVA (2 triangles = 6 vertices)
+                // quad vertices
                 int vIdx = idx * 6;
                 terrainVA[vIdx + 0] = {{px, py}, baseColor};
                 terrainVA[vIdx + 1] = {{px + cellSize, py}, baseColor};
@@ -724,16 +707,16 @@ int main() {
                 terrainVA[vIdx + 4] = {{px + cellSize, py + cellSize}, baseColor};
                 terrainVA[vIdx + 5] = {{px, py + cellSize}, baseColor};
 
-                // Translucent search waves / path overlay
+                // search and path overlay
                 NodeState state = system.node_states[idx];
                 if (state != UNVISITED) {
                     sf::Color overlayColor;
                     if (state == FRONTIER) {
-                        overlayColor = sf::Color(255, 215, 0, 220);     // Luminous Golden Wave (Frontier)
+                        overlayColor = sf::Color(255, 215, 0, 220);     // frontier
                     } else if (state == VISITED) {
-                        overlayColor = sf::Color(80, 165, 245, 125);    // Translucent Cerulean (Terrain shows through!)
+                        overlayColor = sf::Color(80, 165, 245, 125);    // visited
                     } else if (state == PATH) {
-                        overlayColor = sf::Color(255, 45, 85, 245);     // Neon Coral/Crimson Shortest Path
+                        overlayColor = sf::Color(255, 45, 85, 245);     // shortest path
                     }
 
                     searchOverlayVA.append({{px, py}, overlayColor});
@@ -746,28 +729,15 @@ int main() {
             }
         }
 
-        // 1-call GPU draw for the entire terrain
         window.draw(terrainVA);
-
-        // 1-call GPU draw for active search waves & shortest path
         if (searchOverlayVA.getVertexCount() > 0) {
             window.draw(searchOverlayVA);
         }
 
-        // --- Cartographic Accent 1: Map Title Badge (Top-Left) ---
-        sf::RectangleShape badgeBox({210.f, 24.f});
-        badgeBox.setPosition({offsetX + 10.f, offsetY + 10.f});
-        badgeBox.setFillColor(sf::Color(18, 22, 30, 210));
-        badgeBox.setOutlineColor(sf::Color(60, 70, 90, 180));
-        badgeBox.setOutlineThickness(1.f);
-        window.draw(badgeBox);
-        drawText("UF CAMPUS * NATURE TRAILS", offsetX + 18.f, offsetY + 15.f, 10, sf::Color(210, 225, 245), true);
-
-        // --- Cartographic Accent 2: Compass Rose (Top-Right) ---
+        // compass
         float compassX = offsetX + cellSize * system.width - 32.f;
         float compassY = offsetY + 30.f;
 
-        // North triangle pointer (Red)
         sf::ConvexShape northArrow(3);
         northArrow.setPoint(0, {compassX, compassY - 14.f});
         northArrow.setPoint(1, {compassX - 6.f, compassY});
@@ -775,7 +745,6 @@ int main() {
         northArrow.setFillColor(sf::Color(220, 45, 45));
         window.draw(northArrow);
 
-        // South triangle pointer (Slate)
         sf::ConvexShape southArrow(3);
         southArrow.setPoint(0, {compassX - 6.f, compassY});
         southArrow.setPoint(1, {compassX, compassY + 12.f});
@@ -783,36 +752,36 @@ int main() {
         southArrow.setFillColor(sf::Color(160, 170, 185));
         window.draw(southArrow);
 
-        drawText("N", compassX - 4.f, compassY - 26.f, 10, sf::Color::White, true);
+        drawText("N", compassX - 4.f, compassY - 26.f, 10, sf::Color::White);
 
-        // --- Cartographic Accent 3: Metric Scale Bar (Bottom-Left) ---
-        float scaleBarX = offsetX + 14.f;
-        float scaleBarY = offsetY + cellSize * system.height - 24.f;
-        float scaleBarW = cellSize * 20.f; // 20 grid units
+        // // scale bar
+        // float scaleBarX = offsetX + 14.f;
+        // float scaleBarY = offsetY + cellSize * system.height - 24.f;
+        // float scaleBarW = cellSize * 20.f;
+        //
+        // sf::RectangleShape scaleBarBg({scaleBarW + 55.f, 18.f});
+        // scaleBarBg.setPosition({scaleBarX - 4.f, scaleBarY - 2.f});
+        // scaleBarBg.setFillColor(sf::Color(18, 22, 30, 190));
+        // window.draw(scaleBarBg);
 
-        sf::RectangleShape scaleBarBg({scaleBarW + 55.f, 18.f});
-        scaleBarBg.setPosition({scaleBarX - 4.f, scaleBarY - 2.f});
-        scaleBarBg.setFillColor(sf::Color(18, 22, 30, 190));
-        window.draw(scaleBarBg);
+        // sf::RectangleShape scaleLine({scaleBarW, 2.f});
+        // scaleLine.setPosition({scaleBarX, scaleBarY + 8.f});
+        // scaleLine.setFillColor(sf::Color::White);
+        // window.draw(scaleLine);
+        //
+        // sf::RectangleShape scaleTick1({2.f, 6.f});
+        // scaleTick1.setPosition({scaleBarX, scaleBarY + 6.f});
+        // scaleTick1.setFillColor(sf::Color::White);
+        // window.draw(scaleTick1);
 
-        sf::RectangleShape scaleLine({scaleBarW, 2.f});
-        scaleLine.setPosition({scaleBarX, scaleBarY + 8.f});
-        scaleLine.setFillColor(sf::Color::White);
-        window.draw(scaleLine);
+        // sf::RectangleShape scaleTick2({2.f, 6.f});
+        // scaleTick2.setPosition({scaleBarX + scaleBarW, scaleBarY + 6.f});
+        // scaleTick2.setFillColor(sf::Color::White);
+        // window.draw(scaleTick2);
+        //
+        // drawText("200 m", scaleBarX + scaleBarW + 6.f, scaleBarY + 3.f, 9, sf::Color(220, 225, 235));
 
-        sf::RectangleShape scaleTick1({2.f, 6.f});
-        scaleTick1.setPosition({scaleBarX, scaleBarY + 6.f});
-        scaleTick1.setFillColor(sf::Color::White);
-        window.draw(scaleTick1);
-
-        sf::RectangleShape scaleTick2({2.f, 6.f});
-        scaleTick2.setPosition({scaleBarX + scaleBarW, scaleBarY + 6.f});
-        scaleTick2.setFillColor(sf::Color::White);
-        window.draw(scaleTick2);
-
-        drawText("200 m", scaleBarX + scaleBarW + 6.f, scaleBarY + 3.f, 9, sf::Color(220, 225, 235));
-
-        // --- Draw Start Marker (Bright Green Pin) ---
+        // start marker
         float startX = offsetX + (start_node % system.width + 0.5f) * cellSize;
         float startY = offsetY + (start_node / system.width + 0.5f) * cellSize;
         float startRadius = std::max(4.0f, cellSize * 0.9f);
@@ -825,11 +794,10 @@ int main() {
         startMarker.setOutlineThickness(std::max(1.5f, cellSize * 0.2f));
         window.draw(startMarker);
 
-        // --- Draw Endpoint Destination Flag ---
+        // destination marker
         float endX = offsetX + (end_node % system.width + 0.5f) * cellSize;
         float endY = offsetY + (end_node / system.width + 0.5f) * cellSize;
 
-        // Glowing target ring around endpoint
         float ringRadius = std::max(6.0f, cellSize * 1.3f);
         sf::CircleShape goalRing(ringRadius);
         goalRing.setOrigin({ringRadius, ringRadius});
@@ -839,7 +807,6 @@ int main() {
         goalRing.setOutlineThickness(std::max(2.0f, cellSize * 0.25f));
         window.draw(goalRing);
 
-        // Flagpole
         float poleW = std::max(2.5f, cellSize * 0.25f);
         float poleH = std::max(18.0f, cellSize * 2.8f);
         sf::RectangleShape pole(sf::Vector2f(poleW, poleH));
@@ -849,7 +816,6 @@ int main() {
         pole.setPosition({endX - poleW / 2.0f, endY - poleH + ringRadius * 0.3f});
         window.draw(pole);
 
-        // Gold finial ball atop flagpole
         float ballRadius = std::max(2.5f, poleW * 1.2f);
         sf::CircleShape finial(ballRadius);
         finial.setOrigin({ballRadius, ballRadius});
@@ -857,7 +823,6 @@ int main() {
         finial.setFillColor(sf::Color(255, 215, 0));
         window.draw(finial);
 
-        // Triangular red finish flag waving outward
         float flagW = std::max(14.0f, cellSize * 2.2f);
         float flagH = std::max(10.0f, cellSize * 1.4f);
         sf::ConvexShape flag(3);
@@ -869,30 +834,26 @@ int main() {
         flag.setOutlineThickness(1.0f);
         window.draw(flag);
 
-        // ==========================================
-        // 2. RENDER RIGHT SIDE: ANALYTICS DASHBOARD (WHITE BACKGROUND)
-        // ==========================================
-
-        // Panel background card (Pure White)
+        // dashboard on right side
         sf::RectangleShape panelBg({winWidth - panelX, winHeight});
         panelBg.setPosition({panelX, 0.f});
         panelBg.setFillColor(sf::Color(255, 255, 255));
         window.draw(panelBg);
 
-        // Vertical divider separating map and dashboard
+        // divider line
         sf::RectangleShape divider({2.0f, winHeight});
         divider.setPosition({panelX, 0.f});
         divider.setFillColor(sf::Color(218, 224, 233));
         window.draw(divider);
 
-        // Title Header
-        drawText("Project 2", cardX, 18.f, 22, sf::Color(25, 30, 42), true);
+        // title
+        drawText("Project 2", cardX, 18.f, 22, sf::Color(25, 30, 42));
         drawText("Dijkstra vs A* Search Comparison", cardX, 44.f, 12, sf::Color(100, 110, 125));
 
         sf::Vector2i mousePixel = sf::Mouse::getPosition(window);
         sf::Vector2f mousePos = window.mapPixelToCoords(mousePixel);
 
-        // --- Card 1: Algorithm Execution Buttons ---
+        // run buttons box
         sf::RectangleShape runBox({cardW, 76.f});
         runBox.setPosition({cardX, 62.f});
         runBox.setFillColor(sf::Color(246, 248, 251));
@@ -900,25 +861,22 @@ int main() {
         runBox.setOutlineThickness(1.f);
         window.draw(runBox);
 
-        // Dijkstra Button
         bool dHover = btnDijkstra.contains(mousePos);
-        drawButton(btnDijkstra, "[1] Run Dijkstra", 
+        drawButton(btnDijkstra, "Run Dijkstra",
                    dHover ? sf::Color(21, 101, 192) : sf::Color(25, 118, 210), 
-                   sf::Color::White, sf::Color(15, 80, 160), 1.0f, true);
+                   sf::Color::White, sf::Color(15, 80, 160), 1.0f, false);
 
-        // A* Button
         bool aHover = btnAStar.contains(mousePos);
-        drawButton(btnAStar, "[2] Run A* Search", 
+        drawButton(btnAStar, "Run A* Search",
                    aHover ? sf::Color(27, 94, 32) : sf::Color(46, 125, 50), 
-                   sf::Color::White, sf::Color(20, 80, 30), 1.0f, true);
+                   sf::Color::White, sf::Color(20, 80, 30), 1.0f);
 
-        // Reset Button
         bool rHover = btnReset.contains(mousePos);
-        drawButton(btnReset, "[R] Reset Map & Comparison", 
+        drawButton(btnReset, "Reset Map & Comparison",
                    rHover ? sf::Color(220, 225, 233) : sf::Color(234, 238, 244), 
-                   sf::Color(70, 80, 95), sf::Color(200, 206, 216), 1.0f, false);
+                   sf::Color(70, 80, 95), sf::Color(200, 206, 216), 1.0f);
 
-        // --- Card 2: Start & End Node Selection ---
+        // start and end points box
         sf::RectangleShape nodeBox({cardW, 82.f});
         nodeBox.setPosition({cardX, 146.f});
         nodeBox.setFillColor(sf::Color(246, 248, 251));
@@ -926,46 +884,41 @@ int main() {
         nodeBox.setOutlineThickness(1.f);
         window.draw(nodeBox);
 
-        drawText("START & END NODES", cardX + 12.f, 152.f, 11, sf::Color(100, 110, 125), true);
+        drawText("Start & End Points", cardX + 12.f, 152.f, 11, sf::Color(100, 110, 125));
 
-        // Start Coordinate Display
         sf::CircleShape startDot(4.f);
         startDot.setFillColor(sf::Color(40, 180, 50));
         startDot.setPosition({cardX + 14.f, 172.f});
         window.draw(startDot);
         int sx = start_node % system.width;
         int sy = start_node / system.width;
-        drawText("Start: (" + std::to_string(sx) + ", " + std::to_string(sy) + ")", cardX + 26.f, 167.f, 12, sf::Color(20, 120, 45), true);
+        drawText("Start: (" + std::to_string(sx) + ", " + std::to_string(sy) + ")", cardX + 26.f, 167.f, 12, sf::Color(20, 120, 45));
 
-        // End Coordinate Display
         sf::CircleShape endDot(4.f);
         endDot.setFillColor(sf::Color(220, 40, 40));
         endDot.setPosition({cardX + 185.f, 172.f});
         window.draw(endDot);
         int ex = end_node % system.width;
         int ey = end_node / system.width;
-        drawText("End: (" + std::to_string(ex) + ", " + std::to_string(ey) + ")", cardX + 197.f, 167.f, 12, sf::Color(180, 30, 30), true);
+        drawText("End: (" + std::to_string(ex) + ", " + std::to_string(ey) + ")", cardX + 197.f, 167.f, 12, sf::Color(180, 30, 30));
 
-        // Set Start Button
         bool sHover = btnSetStart.contains(mousePos);
         std::string sLabel = (select_mode == MODE_SET_START) ? "Click Map..." : "Set Start";
         sf::Color sBg = (select_mode == MODE_SET_START) ? sf::Color(200, 235, 205) : (sHover ? sf::Color(228, 234, 242) : sf::Color(240, 243, 248));
         sf::Color sBorder = (select_mode == MODE_SET_START) ? sf::Color(30, 140, 50) : sf::Color(200, 206, 216);
-        drawButton(btnSetStart, sLabel, sBg, sf::Color(20, 110, 40), sBorder, (select_mode == MODE_SET_START) ? 2.f : 1.f, false);
+        drawButton(btnSetStart, sLabel, sBg, sf::Color(20, 110, 40), sBorder, (select_mode == MODE_SET_START) ? 2.f : 1.f);
 
-        // Set Goal Button
         bool gHover = btnSetGoal.contains(mousePos);
         std::string gLabel = (select_mode == MODE_SET_GOAL) ? "Click Map..." : "Set End";
         sf::Color gBg = (select_mode == MODE_SET_GOAL) ? sf::Color(255, 210, 215) : (gHover ? sf::Color(228, 234, 242) : sf::Color(240, 243, 248));
         sf::Color gBorder = (select_mode == MODE_SET_GOAL) ? sf::Color(190, 40, 40) : sf::Color(200, 206, 216);
-        drawButton(btnSetGoal, gLabel, gBg, sf::Color(170, 30, 30), gBorder, (select_mode == MODE_SET_GOAL) ? 2.f : 1.f, false);
+        drawButton(btnSetGoal, gLabel, gBg, sf::Color(170, 30, 30), gBorder, (select_mode == MODE_SET_GOAL) ? 2.f : 1.f);
 
-        // Lake Alice Preset Button
         bool pHover = btnPresetLake.contains(mousePos);
         sf::Color pBg = pHover ? sf::Color(195, 225, 252) : sf::Color(227, 242, 253);
-        drawButton(btnPresetLake, "Lake Preset", pBg, sf::Color(15, 95, 175), sf::Color(160, 200, 240), 1.0f, false);
+        drawButton(btnPresetLake, "Lake Preset", pBg, sf::Color(15, 95, 175), sf::Color(160, 200, 240), 1.0f);
 
-        // --- Card 3: Side-by-Side Comparison Table ---
+        // comparison metrics table
         sf::RectangleShape tableCard({cardW, 192.f});
         tableCard.setPosition({cardX, 236.f});
         tableCard.setFillColor(sf::Color(246, 248, 251));
@@ -973,18 +926,15 @@ int main() {
         tableCard.setOutlineThickness(1.f);
         window.draw(tableCard);
 
-        // Table Header
-        drawText("METRIC", cardX + 12.f, 244.f, 11, sf::Color(100, 110, 125), true);
-        drawText("DIJKSTRA", cardX + 135.f, 244.f, 12, sf::Color(15, 95, 175), true);
-        drawText("A* SEARCH", cardX + 250.f, 244.f, 12, sf::Color(20, 135, 55), true);
+        drawText("METRIC", cardX + 12.f, 244.f, 11, sf::Color(100, 110, 125));
+        drawText("DIJKSTRA", cardX + 135.f, 244.f, 12, sf::Color(15, 95, 175));
+        drawText("A* SEARCH", cardX + 250.f, 244.f, 12, sf::Color(20, 135, 55));
 
-        // Header divider
         sf::RectangleShape tableDivider({cardW - 20.f, 1.0f});
         tableDivider.setPosition({cardX + 10.f, 264.f});
         tableDivider.setFillColor(sf::Color(218, 224, 233));
         window.draw(tableDivider);
 
-        // Table Row Renderer Helper
         auto drawTableRow = [&](const std::string& label, const std::string& dVal, const std::string& aVal, 
                                 bool dActive, bool aActive, float yPos) {
             drawText(label, cardX + 12.f, yPos, 11, sf::Color(65, 75, 90));
@@ -995,39 +945,43 @@ int main() {
         const auto& d_stats = system.dijkstra_stats;
         const auto& a_stats = system.astar_stats;
 
-        // Row 1: Status
+        auto formatTime = [](double ms) -> std::string {
+            std::stringstream ss;
+            if (ms < 1.0) {
+                ss << std::fixed << std::setprecision(2) << ms << " ms";
+            } else {
+                ss << std::fixed << std::setprecision(1) << ms << " ms";
+            }
+            return ss.str();
+        };
+
         std::string dStatus = d_stats.is_running ? "Exploring..." : (d_stats.has_run ? "Done" : "---");
         std::string aStatus = a_stats.is_running ? "Exploring..." : (a_stats.has_run ? "Done" : "---");
         drawTableRow("Status", dStatus, aStatus, d_stats.has_run || d_stats.is_running, a_stats.has_run || a_stats.is_running, 270.f);
 
-        // Row 2: Runtime
-        std::string dTime = d_stats.has_run ? (std::to_string(static_cast<int>(d_stats.search_time_ms.load())) + " ms") : "---";
-        std::string aTime = a_stats.has_run ? (std::to_string(static_cast<int>(a_stats.search_time_ms.load())) + " ms") : "---";
+        std::string dTime = d_stats.has_run ? formatTime(d_stats.search_time_ms.load()) : "---";
+        std::string aTime = a_stats.has_run ? formatTime(a_stats.search_time_ms.load()) : "---";
         drawTableRow("Runtime", dTime, aTime, d_stats.has_run, a_stats.has_run, 294.f);
 
-        // Row 3: Nodes Explored
         std::string dNodes = d_stats.has_run ? std::to_string(d_stats.nodes_explored.load()) : "---";
         std::string aNodes = a_stats.has_run ? std::to_string(a_stats.nodes_explored.load()) : "---";
         drawTableRow("Nodes Visited", dNodes, aNodes, d_stats.has_run, a_stats.has_run, 318.f);
 
-        // Row 4: Path Cost
         std::string dCost = d_stats.has_run ? (std::to_string(static_cast<int>(d_stats.total_cost.load())) + " m") : "---";
         std::string aCost = a_stats.has_run ? (std::to_string(static_cast<int>(a_stats.total_cost.load())) + " m") : "---";
         drawTableRow("Path Cost", dCost, aCost, d_stats.has_run, a_stats.has_run, 342.f);
 
-        // Row 5: Path Length
         std::string dLen = d_stats.has_run ? (std::to_string(d_stats.path_length.load()) + " nodes") : "---";
         std::string aLen = a_stats.has_run ? (std::to_string(a_stats.path_length.load()) + " nodes") : "---";
         drawTableRow("Path Steps", dLen, aLen, d_stats.has_run, a_stats.has_run, 366.f);
 
-        // Active State Indicator
         std::string activeInfo = system.is_searching ? 
             ("Active: " + std::string(system.current_algo == ASTAR ? "A* Search" : "Dijkstra") + " running...") :
             (d_stats.has_run || a_stats.has_run ? "Ready for next comparison" : "Click button above to begin search");
         sf::Color activeColor = system.is_searching ? sf::Color(200, 110, 10) : sf::Color(80, 90, 105);
-        drawText(activeInfo, cardX + 12.f, 400.f, 11, activeColor, true);
+        drawText(activeInfo, cardX + 12.f, 400.f, 11, activeColor);
 
-        // --- Card 4: Dynamic Comparison Verdict Card ---
+        // results comparison card
         float verdictH = (d_stats.has_run && a_stats.has_run) ? 118.f : 110.f;
         sf::RectangleShape verdictCard({cardW, verdictH});
         verdictCard.setPosition({cardX, 436.f});
@@ -1054,65 +1008,65 @@ int main() {
             verdictCard.setOutlineThickness(1.5f);
             window.draw(verdictCard);
 
-            drawText("DYNAMIC VERDICT & BENCHMARK", cardX + 12.f, 442.f, 12, sf::Color(25, 125, 55), true);
+            drawText("Results Comparison", cardX + 12.f, 442.f, 12, sf::Color(25, 125, 55));
 
-            // 1. Exploration Efficiency (pruning)
             if (a_n < d_n) {
                 int saved = d_n - a_n;
                 double pct = (d_n > 0) ? (100.0 * saved / d_n) : 0.0;
                 std::stringstream ss;
                 ss << std::fixed << std::setprecision(1) << pct;
-                drawText("* A* pruned " + std::to_string(saved) + " nodes (" + ss.str() + "% reduction)", 
-                         cardX + 12.f, 462.f, 11, sf::Color(20, 135, 55), true);
+                drawText("* A* explored " + std::to_string(saved) + " fewer nodes (" + ss.str() + "% reduction)", 
+                         cardX + 12.f, 462.f, 11, sf::Color(20, 135, 55));
             } else if (d_n < a_n) {
                 int diff = a_n - d_n;
                 drawText("* Dijkstra explored " + std::to_string(diff) + " fewer nodes", 
-                         cardX + 12.f, 462.f, 11, sf::Color(15, 95, 175), true);
+                         cardX + 12.f, 462.f, 11, sf::Color(15, 95, 175));
             } else {
                 drawText("* Both algorithms explored identical " + std::to_string(a_n) + " nodes", 
                          cardX + 12.f, 462.f, 11, sf::Color(40, 50, 65));
             }
 
-            // 2. Runtime Benchmark Comparison
             if (a_time > 0 && d_time > 0) {
                 if (a_time < d_time) {
                     double speedup = d_time / a_time;
                     std::stringstream ss;
                     ss << std::fixed << std::setprecision(1) << speedup;
-                    drawText("* A* ran " + ss.str() + "x faster (" + std::to_string(static_cast<int>(d_time - a_time)) + " ms saved)", 
+                    std::stringstream ss_diff;
+                    ss_diff << std::fixed << std::setprecision(2) << (d_time - a_time);
+                    drawText("* A* was " + ss.str() + "x faster (" + ss_diff.str() + " ms faster)", 
                              cardX + 12.f, 482.f, 11, sf::Color(30, 40, 50));
                 } else if (d_time < a_time) {
                     double speedup = a_time / d_time;
                     std::stringstream ss;
                     ss << std::fixed << std::setprecision(1) << speedup;
-                    drawText("* Dijkstra ran " + ss.str() + "x faster (" + std::to_string(static_cast<int>(a_time - d_time)) + " ms saved)", 
+                    std::stringstream ss_diff;
+                    ss_diff << std::fixed << std::setprecision(2) << (a_time - d_time);
+                    drawText("* Dijkstra was " + ss.str() + "x faster (" + ss_diff.str() + " ms faster)", 
                              cardX + 12.f, 482.f, 11, sf::Color(30, 40, 50));
                 } else {
-                    drawText("* Equal compute runtime (" + std::to_string(static_cast<int>(a_time)) + " ms)", 
+                    drawText("* Equal compute runtime (" + formatTime(a_time) + ")", 
                              cardX + 12.f, 482.f, 11, sf::Color(30, 40, 50));
                 }
             } else {
-                drawText("* Measured in sub-millisecond execution", cardX + 12.f, 482.f, 11, sf::Color(30, 40, 50));
+                drawText("* Both finished in < 1 ms", cardX + 12.f, 482.f, 11, sf::Color(30, 40, 50));
             }
 
-            // 3. Path Cost & Optimality Verification
             if (d_len > 0 && a_len > 0) {
                 if (cost_match) {
-                    drawText("* Both found identical lowest cost: " + std::to_string(static_cast<int>(a_cost)) + " m", 
+                    drawText("* Both found same path cost: " + std::to_string(static_cast<int>(a_cost)) + " m", 
                              cardX + 12.f, 502.f, 11, sf::Color(45, 75, 55));
                 } else {
                     std::stringstream ss;
                     ss << std::fixed << std::setprecision(1) << std::abs(d_cost - a_cost);
-                    drawText("* Cost difference: " + ss.str() + " m (Dijkstra: " + std::to_string(static_cast<int>(d_cost)) + " m / A*: " + std::to_string(static_cast<int>(a_cost)) + " m)", 
+                    drawText("* Cost diff: " + ss.str() + " m (Dijkstra: " + std::to_string(static_cast<int>(d_cost)) + " m, A*: " + std::to_string(static_cast<int>(a_cost)) + " m)", 
                              cardX + 12.f, 502.f, 11, sf::Color(180, 70, 20));
                 }
             } else {
-                drawText("* One or both algorithms found no valid path", cardX + 12.f, 502.f, 11, sf::Color(180, 50, 50));
+                drawText("* No valid path found", cardX + 12.f, 502.f, 11, sf::Color(180, 50, 50));
             }
 
-            // 4. Algorithmic Insight
             if (a_n < d_n) {
-                drawText("* Distance heuristic guided A* straight to the goal", cardX + 12.f, 522.f, 11, sf::Color(80, 95, 110));
+                drawText("* Heuristic directed A* toward the goal", cardX + 12.f, 522.f, 11, sf::Color(80, 95, 110));
             } else {
                 drawText("* Both algorithms explored similar search areas", cardX + 12.f, 522.f, 11, sf::Color(80, 95, 110));
             }
@@ -1122,36 +1076,36 @@ int main() {
             verdictCard.setOutlineThickness(1.f);
             window.draw(verdictCard);
 
-            drawText("COMPARISON STATUS", cardX + 12.f, 442.f, 12, sf::Color(15, 95, 175), true);
+            drawText("Comparison", cardX + 12.f, 442.f, 12, sf::Color(15, 95, 175), true);
             drawText("Dijkstra explored " + std::to_string(d_stats.nodes_explored.load()) + " nodes (" + 
-                     std::to_string(static_cast<int>(d_stats.search_time_ms.load())) + " ms).", 
+                     formatTime(d_stats.search_time_ms.load()) + ").", 
                      cardX + 12.f, 468.f, 11, sf::Color(50, 60, 75));
-            drawText("Now click [Run A* Search] to compare!", 
-                     cardX + 12.f, 492.f, 11, sf::Color(20, 135, 55), true);
+            drawText("Click [Run A* Search] to compare.", 
+                     cardX + 12.f, 492.f, 11, sf::Color(20, 135, 55));
         } else if (!d_stats.has_run && a_stats.has_run) {
             verdictCard.setFillColor(sf::Color(246, 248, 251));
             verdictCard.setOutlineColor(sf::Color(218, 224, 233));
             verdictCard.setOutlineThickness(1.f);
             window.draw(verdictCard);
 
-            drawText("COMPARISON STATUS", cardX + 12.f, 442.f, 12, sf::Color(20, 135, 55), true);
+            drawText("Comparison", cardX + 12.f, 442.f, 12, sf::Color(20, 135, 55));
             drawText("A* explored " + std::to_string(a_stats.nodes_explored.load()) + " nodes (" + 
-                     std::to_string(static_cast<int>(a_stats.search_time_ms.load())) + " ms).", 
+                     formatTime(a_stats.search_time_ms.load()) + ").", 
                      cardX + 12.f, 468.f, 11, sf::Color(50, 60, 75));
-            drawText("Now click [Run Dijkstra] to compare!", 
-                     cardX + 12.f, 492.f, 11, sf::Color(15, 95, 175), true);
+            drawText("Click [Run Dijkstra] to compare.", 
+                     cardX + 12.f, 492.f, 11, sf::Color(15, 95, 175));
         } else {
             verdictCard.setFillColor(sf::Color(246, 248, 251));
             verdictCard.setOutlineColor(sf::Color(218, 224, 233));
             verdictCard.setOutlineThickness(1.f);
             window.draw(verdictCard);
 
-            drawText("COMPARISON VERDICT", cardX + 12.f, 442.f, 12, sf::Color(100, 110, 125), true);
-            drawText("Run BOTH Dijkstra and A* to", cardX + 12.f, 470.f, 11, sf::Color(115, 125, 140));
-            drawText("unlock live speedup and pruning metrics.", cardX + 12.f, 492.f, 11, sf::Color(115, 125, 140));
+            drawText("Comparison", cardX + 12.f, 442.f, 12, sf::Color(100, 110, 125));
+            drawText("Run both Dijkstra and A* to", cardX + 12.f, 470.f, 11, sf::Color(115, 125, 140));
+            drawText("compare search time and nodes visited.", cardX + 12.f, 492.f, 11, sf::Color(115, 125, 140));
         }
 
-        // --- Card 5: Map Terrain Legend Card ---
+        // legend
         sf::RectangleShape legendCard({cardW, 186.f});
         legendCard.setPosition({cardX, 562.f});
         legendCard.setFillColor(sf::Color(246, 248, 251));
@@ -1159,7 +1113,7 @@ int main() {
         legendCard.setOutlineThickness(1.f);
         window.draw(legendCard);
 
-        drawText("MAP TERRAIN LEGEND", cardX + 12.f, 570.f, 11, sf::Color(65, 75, 90), true);
+        drawText("Map Legend", cardX + 12.f, 570.f, 11, sf::Color(65, 75, 90));
 
         auto drawLegendItem = [&](sf::Color color, const std::string& name, const std::string& cost, float yPos) {
             sf::RectangleShape swatch({13.f, 13.f});
@@ -1179,7 +1133,7 @@ int main() {
         drawLegendItem(sf::Color(148, 62, 50), "Buildings", "Cost: 60.0", 662.f);
         drawLegendItem(sf::Color(22, 55, 86), "Lake Alice (Water)", "Cost: 99.0", 686.f);
 
-        drawText("Tip: Click map (Left=Start, Right=End)", cardX + 12.f, 722.f, 11, sf::Color(120, 130, 145), true);
+        drawText("Tip: Click map (Left=Start, Right=End)", cardX + 12.f, 722.f, 11, sf::Color(120, 130, 145));
 
         window.display();
     }
@@ -1189,11 +1143,12 @@ int main() {
         search_thread.join();
     }
 
+    // restore timer resolution
 #ifdef _WIN32
     timeEndPeriod(1);
 #endif
 
-    // The console should not print anything until the application has closed.
+    // print summary on exit
     std::cout << system.console_log;
 
     return 0;
